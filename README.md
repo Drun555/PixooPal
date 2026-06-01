@@ -1,87 +1,46 @@
+⚠️⚠️⚠️ WIP. It's not ready yet, but will be soon enough. ⚠️⚠️⚠️ 
+
 # PixooPal
 
-TBD
+PixooPal is a companion software for Pixoo 64. Features:
+- Decloud your Pixoo
+- Manage your Pixoo settings (White Balance, Brightness, Power state) from WebUI or [Home Assistant integration](https://github.com/Drun555/PixooPal-Integration)
+- Real-time preview of your Pixoo screen 
+- Interactive clockfaces: Text, number, color, file uploads, or simple button inputs. Also available from HA!
+- Get clockfaces from community tab, or even create your own with ease
+- Send notifications to your Pixoo - they'll appear on top of any clockface. Emojis supported!
 
+## But how does it work?
+- PixooPal acts like a server-side clockface render engine.
+- Every PixooPal clockface is a separate script that implements a "Clockface" class.
+
+<img width="1956" height="1053" alt="WebUI" src="https://github.com/user-attachments/assets/0d9a49bb-ba08-4f63-a3d9-1e8e602db866" />
 
 ## Home Assistant Add-on
 
-[![Open your Home Assistant instance and show the add add-on repository dialog with this repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FDrun555%2FPixooPal)
-
-Or add this repository to the Home Assistant Add-on Store manually:
-
-```text
-https://github.com/Drun555/PixooPal
-```
-
-After installation, set `pixoo_device_address` in the add-on options and open
-PixooPal from the add-on Web UI.
+TBD
 
 ### Docker Compose
 
-```yaml
-services:
-  pixoopal:
-    image: drun555/pixoopal:latest
-    container_name: pixoopal
-    restart: unless-stopped
-    ports:
-      - "5173:5173"
-    environment:
-      PIXOO_DEVICE_ADDRESS: ${PIXOO_DEVICE_ADDRESS:-192.168.x.x}
-      PIXOOPAL_INSTANCE_NAME: PixooPal
-      PORT: "5173"
-      PIXOOPAL_DATA_DIR: /data
-    volumes:
-      - ./pixoopal-data:/data
-    logging:
-      driver: local
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-## Home Assistant Discovery
-
-PixooPal publishes a Zeroconf/mDNS service named `_pixoopal._tcp.local.` on
-port `5173`. Home Assistant integrations can use that record to discover the
-instance and then call:
-
-```text
-GET /api/v1/discovery
-```
-
-The response includes a stable instance id, the PixooPal version, API paths,
-and whether a Pixoo address is configured. The instance id is stored in
-`PIXOOPAL_DATA_DIR` as `.pixoopal-instance.json`, so it survives container
-restarts.
-
-Optional environment variables:
-
-```text
-PIXOOPAL_INSTANCE_NAME=PixooPal
-PIXOOPAL_DISABLE_MDNS=1
-```
-
-If Docker networking blocks multicast DNS, run PixooPal on a network that can
-publish mDNS to Home Assistant, or configure the integration URL manually.
+TBD
 
 ## Running Locally
 
-Install dependencies:
+TBD
 
-```bash
-npm install
-```
+## FAQ
+Q: Is this an AI slop?
 
-Development server:
+A: Absolutely! But here's the thing: Firstly, I'm a (kinda) experienced developer. Secondly, Pixoo seems to be a good target for this kind of slop: it wouldn't cause any harm if it'll break.
 
-```bash
-npm run dev -- --device 192.168.x.x --webui-port 5173
-```
 
-Production:
+Q: How can I create a new clockface?
 
-```bash
-npm run build
-npm run start -- --device 192.168.x.x --webui-port 5173
-```
+A: [It's very simple](https://github.com/Drun555/PixooPal-Community)
+
+
+Q: Can you run Doom on this thing?
+
+A: Poor's man Doom, but yes. It'll be available ASAP.
+
+<img width="500" alt="image" src="https://github.com/user-attachments/assets/9cb02627-55bc-4115-81e9-a42b74fe5bbe" />
