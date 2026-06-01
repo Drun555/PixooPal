@@ -38,8 +38,6 @@ COPY package.json ./package.json
 
 RUN mkdir -p /data && chown -R node:node /data /app
 
-USER node
-
 EXPOSE 5173
 VOLUME ["/data"]
 
