@@ -1,6 +1,7 @@
 import packageJson from '../package.json' with { type: 'json' };
 
 const SUPERVISOR_DISCOVERY_URL = 'http://supervisor/discovery';
+const SUPERVISOR_ADDON_INFO_URL = 'http://supervisor/addons/self/info';
 const SUPERVISOR_DISCOVERY_SERVICE = 'pixoopal';
 
 export async function registerSupervisorDiscovery(port) {
@@ -11,12 +12,14 @@ export async function registerSupervisorDiscovery(port) {
     return;
   }
 
+  const host = await getSupervisorAddonHost(token);
+
   const payload = {
     service: SUPERVISOR_DISCOVERY_SERVICE,
     config: {
       name: process.env.PIXOOPAL_INSTANCE_NAME || 'PixooPal',
       port: String(port),
-      host: process.env.HOST || '0.0.0.0',
+      host,
       path: '/api/v1/discovery',
       status_path: '/api/v1/status',
       version: packageJson.version,
@@ -46,4 +49,34 @@ export async function registerSupervisorDiscovery(port) {
   } catch (error) {
     console.warn('[PixooPal] Home Assistant Supervisor discovery failed:', error);
   }
+}
+
+async function getSupervisorAddonHost(token) {
+  const configuredHost = process.env.PIXOOPAL_DISCOVERY_HOST?.trim();
+
+  if (configuredHost) {
+    return configuredHost;
+  }
+
+  try {
+    const response = await fetch(SUPERVISOR_ADDON_INFO_URL, {
+      headers: {
+        authorization: `Bearer ${token}`
+      }
+    });
+    const body = await response.json();
+    const hostname = body?.data?.hostname || body?.hostname;
+
+    if (response.ok && typeof hostname === 'string' && hostname.trim()) {
+      return hostname.trim();
+    }
+
+    console.warn(
+      `[PixooPal] Could not read add-on hostname from Supervisor: HTTP ${response.status}`
+    );
+  } catch (error) {
+    console.warn('[PixooPal] Could not read add-on hostname from Supervisor:', error);
+  }
+
+  return 'local-pixoopal';
 }
