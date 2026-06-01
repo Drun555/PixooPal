@@ -16,27 +16,6 @@ https://github.com/Drun555/PixooPal
 After installation, set `pixoo_device_address` in the add-on options and open
 PixooPal from the add-on Web UI.
 
-## Unraid Community App
-
-TBD
-
-## Docker
-
-```bash
-docker run --rm \
-  -p 5173:5173 \
-  -e PIXOO_DEVICE_ADDRESS=192.168.6.3 \
-  -v pixoopal-data:/data \
-  --log-driver local \
-  --log-opt max-size=10m \
-  --log-opt max-file=3 \
-  drun555/pixoopal:latest
-```
-
-Clockface state is stored in `/data`. You can override the path with
-`PIXOOPAL_DATA_DIR`. PixooPal writes logs to stdout/stderr only; Docker keeps
-those logs in its own log store with the rotation limit shown above.
-
 ### Docker Compose
 
 ```yaml
