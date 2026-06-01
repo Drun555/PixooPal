@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 
 export type RuntimeConfig = {
+  configured: boolean;
   pixooAddress: string;
   pixooHost: string;
   pixooPostUrl: string;
@@ -29,6 +30,7 @@ export function getRuntimeConfig(): RuntimeConfig {
   const pixooAddress = runtimePixooAddress || env.PIXOO_DEVICE_ADDRESS || env.PIXOO_ADDRESS || '';
   const pixooHost = normalizePixooHost(pixooAddress);
   const config = {
+    configured: Boolean(pixooHost),
     pixooAddress,
     pixooHost,
     pixooPostUrl: pixooHost ? `http://${pixooHost}/post` : '',

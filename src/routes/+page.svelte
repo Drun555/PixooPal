@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Bell, Layers, Monitor, Power, Save, Send, Sun, Volume2, Wifi } from '@lucide/svelte';
+  import { Bell, Layers, Monitor, Power, Send, Sun, Volume2, Wifi } from '@lucide/svelte';
   import ClockfaceInputs from '$lib/components/ClockfaceInputs.svelte';
 
   type PixooSettings = {
@@ -22,12 +22,16 @@
     ok: boolean;
     reachable: boolean;
     config: {
+      configured: boolean;
       pixooAddress: string;
       pixooHost: string;
       pixooPostUrl: string;
       webuiPort: string;
     };
     settings: PixooSettings | null;
+    control?: {
+      pixooPalOff: boolean;
+    };
     recovery?: {
       reachable: boolean;
       drawCooldownRemainingMs: number;
@@ -71,6 +75,13 @@
     message?: string;
   };
 
+  type ControlPayload = {
+    ok: boolean;
+    control: {
+      pixooPalOff: boolean;
+    };
+  };
+
   type PixooPalEvent =
     | {
         type: 'preview';
@@ -111,6 +122,7 @@
   let previewReconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let previewReconnectDelayMs = 500;
   let pixooAddress = '';
+  let pixooPalOff = false;
   let brightness = 50;
   let powered = true;
   let notificationText = '';
@@ -122,7 +134,9 @@
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
 
+  $: pixooAddressConfigured = Boolean(status?.config?.pixooHost || pixooAddress);
   $: pixooConnectionLabel = getPixooConnectionLabel(status);
+  $: pixooConnectionMessage = getPixooConnectionMessage(status);
   $: paintPreview(previewCanvas, preview);
   $: previewStyle = `--preview-glow: ${glowColor}`;
 
@@ -145,6 +159,14 @@
     if (typeof settings.LightSwitch === 'number') {
       powered = settings.LightSwitch === 1;
     }
+  }
+
+  function syncControl(control: StatusPayload['control'] | ControlPayload['control'] | undefined) {
+    if (!control) {
+      return;
+    }
+
+    pixooPalOff = control.pixooPalOff;
   }
 
   function syncConfig(config: StatusPayload['config'] | undefined) {
@@ -313,6 +335,7 @@
       const body = (await response.json()) as StatusPayload;
       status = body;
       syncConfig(body.config);
+      syncControl(body.control);
       syncFromSettings(body.settings);
 
       if (buttonKey) {
@@ -416,6 +439,7 @@
       if (payload?.type === 'device_status') {
         status = payload.status;
         syncConfig(payload.status.config);
+        syncControl(payload.status.control);
         syncFromSettings(payload.status.settings);
       }
     };
@@ -457,34 +481,35 @@
     syncConfig(body.config);
   }
 
-  async function savePixooAddress() {
-    const value = pixooAddress.trim();
+  async function refreshControl() {
+    const response = await fetch(apiUrl('/api/v1/control'));
+    const body = (await response.json()) as ControlPayload;
+    syncControl(body.control);
+  }
 
-    if (!value) {
-      return;
-    }
-
-    const key = 'pixooAddress';
+  async function setPixooPalPower(off: boolean) {
+    const key = 'pixooPalPower';
     setButtonState(key, 'busy');
 
     try {
-      const response = await fetch(apiUrl('/api/config'), {
+      const response = await fetch(apiUrl('/api/v1/control'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json'
         },
-        body: JSON.stringify({ pixooAddress: value })
+        body: JSON.stringify({ pixooPalOff: off })
       });
-      const body = (await response.json()) as { ok: boolean; config: StatusPayload['config'] };
+      const body = (await response.json()) as ControlPayload;
 
       if (!response.ok || body.ok === false) {
-        throw new Error('Pixoo address was not saved');
+        throw new Error('PixooPal control was not saved');
       }
 
-      syncConfig(body.config);
-      await refreshStatus();
+      syncControl(body.control);
       setButtonState(key, 'sent');
+      await refreshStatus();
     } catch (error) {
+      pixooPalOff = !off;
       setButtonState(key, 'error');
     }
   }
@@ -503,7 +528,7 @@
       const body = (await response.json()) as ClockfacesPayload;
 
       if (!response.ok || body.ok === false) {
-        throw new Error(body.message || 'Clockface не выбран');
+        throw new Error(body.message || 'Clockface is not set');
       }
 
       syncClockfaces(body);
@@ -530,7 +555,7 @@
       const body = (await response.json()) as ClockfacesPayload;
 
       if (!response.ok || body.ok === false) {
-        throw new Error(body.message || 'Параметр clockface не применен');
+        throw new Error(body.message || 'Clockface error');
       }
 
       syncClockfaces(body);
@@ -569,7 +594,7 @@
       const body = (await response.json()) as ClockfacesPayload;
 
       if (!response.ok || body.ok === false) {
-        throw new Error(body.message || 'Уведомление не отправлено');
+        throw new Error(body.message || 'Notification was not sent');
       }
 
       syncClockfaces(body);
@@ -593,7 +618,7 @@
       const body = await response.json().catch(() => ({}));
 
       if (!response.ok || body.ok === false) {
-        throw new Error(body.message || 'Команда Pixoo не выполнена');
+        throw new Error(body.message || 'Error');
       }
 
       setButtonState(key, 'sent');
@@ -604,18 +629,44 @@
   }
 
   function getPixooConnectionLabel(nextStatus: StatusPayload | null) {
-    if (!nextStatus?.config?.pixooHost) {
-      return 'IP не задан';
+    if (!nextStatus) {
+      return pixooAddress ? 'checking' : 'Pixoo IP is not set';
+    }
+
+    if (!nextStatus.config.pixooHost) {
+      return 'Pixoo IP is not set';
     }
 
     return nextStatus.reachable ? 'online' : 'offline';
+  }
+
+  function getPixooConnectionMessage(nextStatus: StatusPayload | null) {
+    if (!nextStatus) {
+      return pixooAddress
+        ? 'Checking Pixoo reachability.'
+        : 'Pixoo IP is not configured.';
+    }
+
+    if (!nextStatus.config.pixooHost) {
+      return 'Pixoo IP is not configured.';
+    }
+
+    if (!nextStatus.reachable) {
+      return nextStatus.message || 'Pixoo is not reachable.';
+    }
+
+    return pixooPalOff
+      ? 'PixooPal is paused.'
+      : 'PixooPal is connected.';
   }
 
   onMount(() => {
     refreshConfig()
       .catch(() => undefined)
       .finally(() => {
-        refreshStatus()
+        refreshControl()
+          .catch(() => undefined)
+          .then(() => refreshStatus())
           .then(() => refreshClockfaces())
           .then(() => refreshPreviewSnapshot())
           .catch(() => undefined);
@@ -636,189 +687,200 @@
 </svelte:head>
 
 <main class="shell">
-  <section class="preview-stage" style={previewStyle}>
-    <form class="address-bar" onsubmit={(event) => {
-      event.preventDefault();
-      savePixooAddress();
-    }}>
-      <label>
-        <Wifi size={16} />
-        <span>Pixoo IP</span>
-        <input
-          aria-label="Pixoo IP"
-          bind:value={pixooAddress}
-          placeholder="192.168.1.50"
-          spellcheck="false"
-        />
-      </label>
+  <div class="left-column">
+    <section class="pixoo-status-card" aria-label="Pixoo status">
+      <div class="status-title">
+        <span class="status-icon">
+          <Wifi size={16} />
+        </span>
+        <span>Pixoo</span>
 
-      <span class:online={status?.reachable === true} class="address-status">
-        {pixooConnectionLabel}
-      </span>
+        <span
+          class:missing={!pixooAddressConfigured}
+          class:offline={pixooAddressConfigured && status?.reachable === false}
+          class:online={status?.reachable === true}
+          class="address-status"
+        >
+          {pixooConnectionLabel}
+        </span>
+      </div>
 
-      <button
-        class:error={buttonState.pixooAddress === 'error'}
-        class:sent={buttonState.pixooAddress === 'sent'}
-        disabled={buttonState.pixooAddress === 'busy' || !pixooAddress.trim()}
-        type="submit"
-        title="Сохранить Pixoo IP"
-      >
-        <Save size={16} />
-      </button>
-    </form>
+      <div class="status-address">{pixooAddress || 'Not configured'}</div>
+      <input aria-label="Pixoo IP" bind:value={pixooAddress} disabled readonly type="hidden" />
+      <p class="connection-note">{pixooConnectionMessage}</p>
+    </section>
 
-    <div class="preview-aura"></div>
-    <div class="preview-shell">
-      <div class="pixoo-frame">
-        <div class="pixel-screen">
-          <canvas
-            aria-label="Буфер Pixoo 64 на 64 пикселя"
-            bind:this={previewCanvas}
-            height={PREVIEW_SIZE}
-            width={PREVIEW_SIZE}
-          ></canvas>
+    <section class="preview-stage" style={previewStyle}>
+      <div class="preview-aura"></div>
+      <div class="preview-shell">
+        <div class="pixoo-frame">
+          <div class="pixel-screen">
+            <canvas
+              aria-label="Pixoo Buffer"
+              bind:this={previewCanvas}
+              height={PREVIEW_SIZE}
+              width={PREVIEW_SIZE}
+            ></canvas>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
+  </div>
 
-  <section class="device-controls" aria-label="Управление устройством">
-    <div class="control-block brightness-block">
-      <div class="control-heading">
-        <Sun size={18} />
-        <span>Яркость</span>
-        <strong>{brightness}%</strong>
-      </div>
-
-      <input
-        aria-label="Яркость"
-        type="range"
-        min="0"
-        max="100"
-        bind:value={brightness}
-        onchange={() => sendAction('brightness', 'brightness', { value: brightness })}
-      />
-    </div>
-
-    <div class="control-block power-block">
-      <div class="control-heading">
-        <Power size={18} />
-        <span>Питание</span>
-      </div>
-
-      <div class="segmented" aria-label="Питание экрана">
-        <button
-          type="button"
-          class:active={powered}
-          class:error={buttonState.screenOn === 'error'}
-          class:sent={buttonState.screenOn === 'sent'}
-          disabled={buttonState.screenOn === 'busy'}
-          onclick={() => {
-            powered = true;
-            sendAction('screenOn', 'screen', { on: true });
-          }}
-        >
-          <Monitor size={17} />
-          <span>{actionLabel('screenOn', 'Вкл')}</span>
-        </button>
-        <button
-          type="button"
-          class:active={!powered}
-          class:error={buttonState.screenOff === 'error'}
-          class:sent={buttonState.screenOff === 'sent'}
-          disabled={buttonState.screenOff === 'busy'}
-          onclick={() => {
-            powered = false;
-            sendAction('screenOff', 'screen', { on: false });
-          }}
-        >
-          <Power size={17} />
-          <span>{actionLabel('screenOff', 'Выкл')}</span>
-        </button>
-      </div>
-    </div>
-  </section>
-
-  <section class="clockface-panel" aria-label="Выбор Clockface">
-    <div class="panel-title">
-      <Layers size={19} />
-      <h2>Clockface</h2>
-    </div>
-
-    <div class="clockface-picker-row">
-      <label class="select-label">
-        <span>Активный</span>
-        <select
-          value={activeClockfaceId}
-          onchange={(event) => selectClockface(event.currentTarget.value)}
-        >
-          {#each clockfaces as clockface}
-            <option value={clockface.id}>{clockface.name}</option>
-          {/each}
-        </select>
+  <div class="right-column">
+    <section class="control-block pixoopal-power compact" aria-label="PixooPal control">
+      <label class="switch-row">
+        <input
+          type="checkbox"
+          bind:checked={pixooPalOff}
+          disabled={buttonState.pixooPalPower === 'busy'}
+          onchange={(event) => setPixooPalPower(event.currentTarget.checked)}
+        />
+        <span class="switch-track" aria-hidden="true"></span>
+        <span>
+          <strong>Pause PixooPal</strong>
+          <small>{pixooPalOff ? 'Clockface is paused' : 'Clockface is active'}</small>
+        </span>
       </label>
+    </section>
+    <section class="device-controls" aria-label="Device settings">
+      <div class="control-block brightness-block">
+        <div class="control-heading">
+          <Sun size={18} />
+          <span>Brightness</span>
+          <strong>{brightness}%</strong>
+        </div>
 
-      {#if activeClockface && activeClockfaceHasSettings}
+        <input
+          aria-label="Яркость"
+          type="range"
+          min="0"
+          max="100"
+          bind:value={brightness}
+          onchange={() => sendAction('brightness', 'brightness', { value: brightness })}
+        />
+      </div>
+
+      <div class="control-block power-block">
+        <div class="control-heading">
+          <Power size={18} />
+          <span>Screen</span>
+        </div>
+
+        <div class="segmented" aria-label="Питание экрана">
+          <button
+            type="button"
+            class:active={powered}
+            class:error={buttonState.screenOn === 'error'}
+            class:sent={buttonState.screenOn === 'sent'}
+            disabled={buttonState.screenOn === 'busy'}
+            onclick={() => {
+              powered = true;
+              sendAction('screenOn', 'screen', { on: true });
+            }}
+          >
+            <Monitor size={17} />
+            <span>{actionLabel('screenOn', 'On')}</span>
+          </button>
+          <button
+            type="button"
+            class:active={!powered}
+            class:error={buttonState.screenOff === 'error'}
+            class:sent={buttonState.screenOff === 'sent'}
+            disabled={buttonState.screenOff === 'busy'}
+            onclick={() => {
+              powered = false;
+              sendAction('screenOff', 'screen', { on: false });
+            }}
+          >
+            <Power size={17} />
+            <span>{actionLabel('screenOff', 'Off')}</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="clockface-panel" aria-label="Выбор Clockface">
+      <div class="panel-title">
+        <Layers size={19} />
+        <h2>Clockface</h2>
+      </div>
+
+      <div class="clockface-picker-row">
+        <label class="select-label">
+          <span>Active</span>
+          <select
+            value={activeClockfaceId}
+            onchange={(event) => selectClockface(event.currentTarget.value)}
+          >
+            {#each clockfaces as clockface}
+              <option value={clockface.id}>{clockface.name}</option>
+            {/each}
+          </select>
+        </label>
+
+        {#if activeClockface && activeClockfaceHasSettings}
+          <ClockfaceInputs
+            mode="settings"
+            inputs={activeClockface.inputs}
+            data={activeClockface.data}
+            {buttonState}
+            onSubmitInput={submitClockfaceInput}
+          />
+        {/if}
+      </div>
+
+      {#if activeClockface}
         <ClockfaceInputs
-          mode="settings"
+          mode="visible"
           inputs={activeClockface.inputs}
           data={activeClockface.data}
           {buttonState}
           onSubmitInput={submitClockfaceInput}
         />
       {/if}
-    </div>
+    </section>
 
-    {#if activeClockface}
-      <ClockfaceInputs
-        mode="visible"
-        inputs={activeClockface.inputs}
-        data={activeClockface.data}
-        {buttonState}
-        onSubmitInput={submitClockfaceInput}
-      />
-    {/if}
-  </section>
+    <section class="notification-panel" aria-label="Notification">
+      <div class="panel-title">
+        <Bell size={19} />
+        <h2>Notification</h2>
+      </div>
 
-  <section class="notification-panel" aria-label="Уведомление">
-    <div class="panel-title">
-      <Bell size={19} />
-      <h2>Уведомление</h2>
-    </div>
+      <div class="notification-form">
+        <label class="notification-text">
+          <span>Text</span>
+          <input
+            type="text"
+            bind:value={notificationText}
+            placeholder="Hi, Pixoo!"
+            onkeydown={(event) => {
+              if (event.key === 'Enter') {
+                submitNotification();
+              }
+            }}
+          />
+        </label>
 
-    <div class="notification-form">
-      <label class="notification-text">
-        <span>Текст</span>
-        <input
-          type="text"
-          bind:value={notificationText}
-          placeholder="Привет, Pixoo!"
-          onkeydown={(event) => {
-            if (event.key === 'Enter') {
-              submitNotification();
-            }
-          }}
-        />
-      </label>
+        <label class="beep-toggle">
+          <input type="checkbox" bind:checked={notificationBeep} />
+          <Volume2 size={17} />
+          <span>Beep</span>
+        </label>
 
-      <label class="beep-toggle">
-        <input type="checkbox" bind:checked={notificationBeep} />
-        <Volume2 size={17} />
-        <span>Beep</span>
-      </label>
-
-      <button
-        class:error={buttonState.notification === 'error'}
-        class:sent={buttonState.notification === 'sent'}
-        disabled={buttonState.notification === 'busy'}
-        type="button"
-        onclick={submitNotification}
-      >
-        <Send size={17} />
-        <span>{actionLabel('notification', 'Отправить')}</span>
-      </button>
-    </div>
-  </section>
+        <button
+          class:error={buttonState.notification === 'error'}
+          class:sent={buttonState.notification === 'sent'}
+          disabled={buttonState.notification === 'busy'}
+          type="button"
+          onclick={submitNotification}
+        >
+          <Send size={17} />
+          <span>{actionLabel('notification', 'Send')}</span>
+        </button>
+      </div>
+    </section>
+  </div>
 </main>
 
 <style>
@@ -841,6 +903,7 @@
   button,
   input,
   select {
+    min-width: 0;
     font: inherit;
   }
 
@@ -856,11 +919,28 @@
 
   .shell {
     display: grid;
-    width: min(920px, calc(100% - 28px));
+    grid-template-columns: minmax(360px, 0.95fr) minmax(360px, 1.05fr);
+    width: min(1180px, calc(100% - 28px));
     min-height: 100vh;
     margin: 0 auto;
     padding: clamp(22px, 5vh, 54px) 0 42px;
-    gap: 20px;
+    gap: 22px;
+    align-content: center;
+    align-items: center;
+  }
+
+  .left-column,
+  .right-column {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .left-column {
+    justify-items: center;
+  }
+
+  .right-column {
     align-content: center;
   }
 
@@ -873,12 +953,12 @@
     isolation: isolate;
   }
 
-  .address-bar {
+  .pixoo-status-card {
     display: grid;
-    grid-template-columns: minmax(210px, 320px) auto auto;
+    width: min(calc(42vw + 44px), 474px);
+    max-width: 100%;
     gap: 8px;
-    align-items: center;
-    padding: 6px;
+    padding: 12px 14px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
     background: rgba(10, 14, 20, 0.72);
@@ -888,27 +968,37 @@
     backdrop-filter: blur(14px);
   }
 
-  .address-bar label {
-    display: grid;
-    grid-template-columns: auto auto minmax(110px, 1fr);
-    gap: 7px;
+  .status-title {
+    display: flex;
     align-items: center;
-    color: #9fb0c3;
-    font-size: 0.82rem;
-    font-weight: 850;
+    gap: 8px;
+    color: #d9e2ec;
+    font-size: 0.88rem;
+    font-weight: 900;
   }
 
-  .address-bar label :global(svg) {
+  .status-icon {
+    display: inline-grid;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+    border-radius: 50%;
+    background: rgba(118, 220, 202, 0.12);
     color: #87cfc0;
   }
 
-  .address-bar input {
-    min-height: 34px;
-    padding: 0 10px;
+  .status-address {
+    overflow: hidden;
+    color: #f8fbff;
+    font-size: 1.05rem;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .address-status {
-    min-width: 74px;
+    margin-left: auto;
+    min-width: 0;
     color: #aeb9c8;
     font-size: 0.78rem;
     font-weight: 850;
@@ -919,29 +1009,16 @@
     color: #87e6c7;
   }
 
-  .address-bar button {
-    display: inline-grid;
-    width: 34px;
-    height: 34px;
-    place-items: center;
-    border-radius: 8px;
-    color: #07110f;
-    background: #76dcca;
-    cursor: pointer;
+  .address-status.offline,
+  .address-status.missing {
+    color: #ffb8a8;
   }
 
-  .address-bar button.sent {
-    background: #9af0d7;
-  }
-
-  .address-bar button.error {
-    color: #ffffff;
-    background: #b84b45;
-  }
-
-  .address-bar button:disabled {
-    cursor: progress;
-    opacity: 0.55;
+  .connection-note {
+    margin: 0;
+    color: #91a1b5;
+    font-size: 0.78rem;
+    line-height: 1.35;
   }
 
   .preview-aura {
@@ -957,6 +1034,8 @@
   }
 
   .preview-shell {
+    width: min(calc(42vw + 44px), 474px);
+    max-width: 100%;
     padding: clamp(14px, 3vw, 22px);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 18px;
@@ -971,10 +1050,8 @@
   }
 
   .pixoo-frame {
-    width: min(74vw, 430px);
+    width: 100%;
     aspect-ratio: 1;
-    padding: 18px;
-    border: 10px solid #1b202b;
     border-radius: 26px;
     background:
       linear-gradient(145deg, #2a303b, #11151d 62%),
@@ -1007,8 +1084,8 @@
   .device-controls,
   .notification-panel,
   .clockface-panel {
-    width: min(620px, 100%);
-    margin: 0 auto;
+    width: 100%;
+    margin: 0;
   }
 
   .device-controls {
@@ -1028,6 +1105,80 @@
       0 18px 48px rgba(0, 0, 0, 0.28),
       inset 0 1px 0 rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(16px);
+  }
+
+  .pixoopal-power {
+    width: 100%;
+  }
+
+  .pixoopal-power.compact {
+    padding: 10px 12px;
+  }
+
+  .pixoopal-power.compact .switch-row {
+    font-size: 0.86rem;
+  }
+
+  .pixoopal-power strong,
+  .pixoopal-power small {
+    display: block;
+  }
+
+  .pixoopal-power small {
+    margin-top: 2px;
+    color: #91a1b5;
+    font-size: 0.75rem;
+    font-weight: 800;
+  }
+
+  .switch-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    color: #d9e2ec;
+    font-size: 0.88rem;
+    font-weight: 800;
+  }
+
+  .switch-row input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .switch-track {
+    position: relative;
+    width: 46px;
+    height: 26px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    transition: background 160ms ease;
+  }
+
+  .switch-track::after {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #d6e4ef;
+    content: '';
+    transition: transform 160ms ease;
+  }
+
+  .switch-row input:checked + .switch-track {
+    background: #b84b45;
+  }
+
+  .switch-row input:checked + .switch-track::after {
+    transform: translateX(20px);
+  }
+
+  .switch-row input:disabled + .switch-track {
+    opacity: 0.62;
   }
 
   .control-block {
@@ -1212,36 +1363,41 @@
     box-shadow: 0 0 0 3px rgba(99, 209, 187, 0.16);
   }
 
-  @media (max-width: 680px) {
+  @media (max-width: 860px) {
     .shell {
+      grid-template-columns: 1fr;
       padding-top: 18px;
       align-content: start;
+      align-items: start;
+    }
+
+    .left-column {
+      justify-items: stretch;
     }
 
     .preview-stage {
-      min-height: 48vh;
-    }
-
-    .address-bar {
-      grid-template-columns: 1fr auto;
-      width: min(100%, 430px);
-    }
-
-    .address-bar label {
-      grid-template-columns: auto minmax(0, 1fr);
-    }
-
-    .address-bar label span {
-      display: none;
-    }
-
-    .address-status {
-      grid-column: 1 / -1;
-      grid-row: 2;
-      text-align: left;
+      min-height: 0;
+      padding: 8px 0;
     }
 
     .device-controls {
+      grid-template-columns: 1fr;
+    }
+
+    .pixoo-status-card,
+    .preview-shell {
+      width: 100%;
+    }
+
+    .preview-aura {
+      width: min(110vw, 520px);
+    }
+
+    .pixoo-frame {
+      width: 100%;
+    }
+
+    .clockface-picker-row {
       grid-template-columns: 1fr;
     }
 

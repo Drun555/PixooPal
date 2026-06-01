@@ -1,6 +1,6 @@
 {
   "name": "pixoopal",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,7 +16,6 @@
     "@lucide/svelte": "latest",
     "@types/ws": "^8.18.1",
     "gifuct-js": "^2.1.2",
-    "pixoo-api": "latest",
     "pureimage": "^0.4.18",
     "sharp": "^0.34.5",
     "ws": "^8.21.0"

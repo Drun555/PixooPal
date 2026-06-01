@@ -1,5 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getClockfacesView } from '$lib/server/clockfaces';
+import { getPixooPalControlState } from '$lib/server/control';
 import { getRuntimeConfig } from '$lib/server/config';
 import { getPixooRecoveryState, getPixooSettings } from '$lib/server/pixoo';
 import { publishPixooPalEvent } from '$lib/server/previewStream';
@@ -7,6 +8,7 @@ import { publishPixooPalEvent } from '$lib/server/previewStream';
 export const GET: RequestHandler = async () => {
   const config = getRuntimeConfig();
   const clockfaces = await getClockfacesView();
+  const control = getPixooPalControlState();
 
   if (!config.pixooHost) {
     console.warn('[PixooPal] Status requested without Pixoo host configured.');
@@ -16,6 +18,7 @@ export const GET: RequestHandler = async () => {
       reachable: false,
       config,
       settings: null,
+      control,
       recovery: getPixooRecoveryState(),
       activeClockface: clockfaces.active,
       message: 'Pixoo address is not configured.'
@@ -32,13 +35,13 @@ export const GET: RequestHandler = async () => {
 
   try {
     const settings = await getPixooSettings();
-    console.log(`[PixooPal] Pixoo status check succeeded for ${config.pixooHost}.`);
 
     const body = {
       ok: true,
       reachable: true,
       config,
       settings,
+      control,
       recovery: getPixooRecoveryState(),
       activeClockface: clockfaces.active
     };
@@ -60,6 +63,7 @@ export const GET: RequestHandler = async () => {
       reachable: false,
       config,
       settings: null,
+      control,
       recovery: getPixooRecoveryState(),
       activeClockface: clockfaces.active,
       message: error instanceof Error ? error.message : 'Pixoo is not reachable.'

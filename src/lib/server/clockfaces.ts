@@ -5,6 +5,7 @@ import {
   NOTIFICATION_FRAME_MS,
   startNotification
 } from './notifications';
+import { getPixooPalControlState, isPixooPalOff, subscribePixooPalControl } from './control';
 import { getRuntimeConfig } from './config';
 import {
   getPixooRecoveryState,
@@ -68,6 +69,7 @@ type ClockfaceRuntimeState = {
   activeRunner?: ClockfaceRunner;
   clockfacesPaused?: boolean;
   dispose?: () => void;
+  controlUnsubscribe?: () => void;
   powerUnsubscribe?: () => void;
   pushQueue?: Promise<void>;
   recoveryTimer?: ReturnType<typeof setTimeout>;
@@ -113,7 +115,7 @@ const persistenceReady = Promise.all(
 
 clockfaceRuntimeState.activeClockfaceId = getInitialActiveClockfaceId();
 clockfaceRuntimeState.activeRunner = undefined;
-clockfaceRuntimeState.clockfacesPaused ??= false;
+clockfaceRuntimeState.clockfacesPaused = getPixooPalControlState().pixooPalOff;
 clockfaceRuntimeState.pushQueue ??= Promise.resolve();
 
 let disposed = false;
@@ -153,6 +155,15 @@ clockfaceRuntimeState.powerUnsubscribe = subscribePixooPower((power) => {
   pauseClockfaces().catch((error) => {
     console.error('Clockface pause failed:', error);
   });
+});
+
+clockfaceRuntimeState.controlUnsubscribe = subscribePixooPalControl(async (control) => {
+  if (control.pixooPalOff) {
+    await pauseClockfaces({ publishPreview: false });
+    return;
+  }
+
+  scheduleClockfaceResume(getPixooRecoveryState().drawCooldownRemainingMs);
 });
 
 refreshActiveClockfaceInBackground();
@@ -251,7 +262,7 @@ export async function refreshActiveClockface() {
 }
 
 export function refreshActiveClockfaceInBackground() {
-  if (!getRuntimeConfig().pixooHost) {
+  if (!getRuntimeConfig().pixooHost || isPixooPalOff()) {
     return;
   }
 
@@ -268,6 +279,18 @@ export async function showNotification(text: string, beep: boolean) {
   }
 
   if (isClockfacesPaused()) {
+    const view = await getClockfacesView();
+
+    publishPixooPalEvent({
+      type: 'notification',
+      message: text,
+      beep
+    });
+
+    return view;
+  }
+
+  if (isPixooPalOff()) {
     const view = await getClockfacesView();
 
     publishPixooPalEvent({
@@ -306,6 +329,10 @@ export async function showNotification(text: string, beep: boolean) {
 }
 
 export async function setPixooScreenWithServiceClockface(on: boolean) {
+  if (isPixooPalOff()) {
+    return setScreen(on);
+  }
+
   clockfaceRuntimeState.serviceTransition = true;
 
   if (on) {
@@ -438,9 +465,11 @@ function disposeClockfaces() {
   clearTimeout(clockfaceRuntimeState.recoveryTimer);
   clockfaceRuntimeState.powerUnsubscribe?.();
   clockfaceRuntimeState.recoveryUnsubscribe?.();
+  clockfaceRuntimeState.controlUnsubscribe?.();
   clockfaceRuntimeState.recoveryTimer = undefined;
   clockfaceRuntimeState.powerUnsubscribe = undefined;
   clockfaceRuntimeState.recoveryUnsubscribe = undefined;
+  clockfaceRuntimeState.controlUnsubscribe = undefined;
 
   const runner = getActiveRunner();
 
@@ -529,6 +558,10 @@ function pushPendingFramesInBackground(runner: ClockfaceRunner) {
 
   pushPendingFrames(runner).catch((error) => {
     console.error('Clockface push failed:', error);
+
+    if (isRunnerActive(runner)) {
+      scheduleNextFrame(runner, getClockfaceEntry(runner.id).instance);
+    }
   });
 }
 
@@ -537,8 +570,11 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
     while (isRunnerActive(runner) && runner.pendingFrame) {
       const frame = runner.pendingFrame;
       runner.pendingFrame = undefined;
-      scheduleNextFrame(runner, getClockfaceEntry(runner.id).instance);
       await enqueueFramePush(runner, frame);
+
+      if (isRunnerActive(runner)) {
+        scheduleNextFrame(runner, getClockfaceEntry(runner.id).instance);
+      }
     }
   } finally {
     runner.sending = false;
@@ -559,7 +595,7 @@ async function enqueueFramePush(runner: ClockfaceRunner, frame: ClockfaceFrame) 
 }
 
 async function pushFrame(runner: ClockfaceRunner, frame: ClockfaceFrame) {
-  if (!isRunnerActive(runner)) {
+  if (!isRunnerActive(runner) || isPixooPalOff()) {
     return;
   }
 
@@ -632,7 +668,7 @@ async function enqueueServiceClockfaceFrame() {
 }
 
 async function pushServiceClockfaceFrame() {
-  if (disposed) {
+  if (disposed || isPixooPalOff()) {
     return;
   }
 
@@ -649,7 +685,7 @@ async function pushServiceClockfaceFrame() {
 }
 
 function scheduleClockfaceRecovery(delayMs: number) {
-  if (isClockfacesPaused()) {
+  if (isClockfacesPaused() || isPixooPalOff()) {
     return;
   }
 
@@ -884,7 +920,13 @@ function getActiveRunner() {
 }
 
 function isRunnerActive(runner: ClockfaceRunner) {
-  return !disposed && !isClockfacesPaused() && !runner.stopped && getActiveRunner() === runner;
+  return (
+    !disposed &&
+    !isClockfacesPaused() &&
+    !isPixooPalOff() &&
+    !runner.stopped &&
+    getActiveRunner() === runner
+  );
 }
 
 function isClockfacesPaused() {

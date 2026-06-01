@@ -6,14 +6,9 @@ import {
   showNotification
 } from '$lib/server/clockfaces';
 import {
-  clearScreen,
-  drawCenteredText,
-  fillScreen,
   getEmptyPreviewBuffer,
-  getPreviewBuffer,
   getPixooRecoveryState,
   getPixooSettings,
-  parseHexColor,
   setBrightness
 } from '$lib/server/pixoo';
 
@@ -46,7 +41,7 @@ export const GET: RequestHandler = async () => {
       config,
       settings,
       recovery: getPixooRecoveryState(),
-      preview: getPreviewBuffer()
+      preview: getEmptyPreviewBuffer()
     });
   } catch (error) {
     return json({
@@ -72,22 +67,13 @@ export const POST: RequestHandler = async ({ request }) => {
       refreshActiveClockfaceInBackground();
     } else if (action === 'screen') {
       result = await setPixooScreenWithServiceClockface(Boolean(payload.on));
-    } else if (action === 'fill') {
-      result = await fillScreen(parseHexColor(String(payload.color ?? '#000000')));
-    } else if (action === 'clear') {
-      result = await clearScreen();
-    } else if (action === 'text') {
-      result = await drawCenteredText(
-        String(payload.text ?? ''),
-        parseHexColor(String(payload.color ?? '#ffffff'))
-      );
     } else if (action === 'notify') {
       result = await showNotification(String(payload.text ?? ''), Boolean(payload.beep));
     } else {
       return errorResponse(new Error('Unsupported Pixoo action.'), 400);
     }
 
-    return json({ ok: true, result, preview: getPreviewBuffer() });
+    return json({ ok: true, result, preview: getEmptyPreviewBuffer() });
   } catch (error) {
     return errorResponse(error);
   }

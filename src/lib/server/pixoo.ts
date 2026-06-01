@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer';
-import { PixooAPI, type RGB } from 'pixoo-api';
 import { getRuntimeConfig, requirePixooHost } from './config';
+import { isPixooPalOff } from './control';
 
-type PixooClient = PixooAPI & Record<string, unknown>;
+export type RGB = [number, number, number];
 type PixooCommand = Record<string, unknown> & { Command: string };
 type PixooPowerListener = (state: PixooPowerState) => void;
 type PixooRecoveryListener = (state: PixooRecoveryState) => void;
@@ -39,9 +39,6 @@ const PIXOO_FRAME_RESOLUTIONS = [16, 32, 64] as const;
 const HTTP_GIF_RESET_INTERVAL_FRAMES = 58;
 const PIXOO_CUSTOM_CHANNEL_INDEX = 3;
 
-let client: PixooClient | undefined;
-let clientHost = '';
-let initializedHost = '';
 const reachabilityState = getPixooReachabilityState();
 const drawState = getPixooDrawState();
 
@@ -51,44 +48,6 @@ function clampInt(value: number, min: number, max: number) {
   }
 
   return Math.max(min, Math.min(max, Math.round(value)));
-}
-
-function getClient() {
-  const config = requirePixooHost();
-
-  if (!client || clientHost !== config.pixooHost) {
-    client = new PixooAPI(config.pixooHost, PIXOO_SIZE) as PixooClient;
-    clientHost = config.pixooHost;
-    initializedHost = '';
-  }
-
-  return client;
-}
-
-async function callClientMethod(names: string[], args: unknown[]) {
-  const pixoo = getClient();
-
-  for (const name of names) {
-    const method = pixoo[name];
-
-    if (typeof method === 'function') {
-      return {
-        called: true,
-        value: await method.apply(pixoo, args)
-      };
-    }
-  }
-
-  return { called: false, value: undefined };
-}
-
-async function ensureInitialized(pixoo: PixooClient) {
-  if (initializedHost === clientHost || typeof pixoo.initialize !== 'function') {
-    return;
-  }
-
-  await pixoo.initialize();
-  initializedHost = clientHost;
 }
 
 function withTimeout(ms: number) {
@@ -131,15 +90,6 @@ export async function sendPixooCommand(command: PixooCommand) {
 
 export async function getPixooSettings() {
   try {
-    const result = await callClientMethod(['getAllSettings'], []);
-
-    if (result.called) {
-      markPixooReachability(true);
-      const settings = result.value ?? {};
-      syncPixooScreenPowerFromSettings(settings);
-      return settings;
-    }
-
     const settings = await sendPixooCommand({ Command: 'Channel/GetAllConf' });
     syncPixooScreenPowerFromSettings(settings);
     return settings;
@@ -147,13 +97,6 @@ export async function getPixooSettings() {
     markPixooReachability(false);
     throw error;
   }
-}
-
-export function getPreviewBuffer() {
-  return {
-    size: PIXOO_SIZE,
-    buffer: flattenBuffer(getClient())
-  };
 }
 
 export function getEmptyPreviewBuffer() {
@@ -165,12 +108,6 @@ export function getEmptyPreviewBuffer() {
 
 export async function setBrightness(value: number) {
   const brightness = clampInt(value, 0, 100);
-  const result = await callClientMethod(['setBrightness', 'setDeviceBrightness'], [brightness]);
-
-  if (result.called) {
-    markPixooReachability(true);
-    return result.value ?? { error_code: 0 };
-  }
 
   return sendPixooCommand({
     Command: 'Channel/SetBrightness',
@@ -180,19 +117,6 @@ export async function setBrightness(value: number) {
 
 export async function setScreen(on: boolean) {
   const enabled = on ? 1 : 0;
-  const result = await callClientMethod(
-    ['setOnOffScreen', 'setScreen', 'setScreenOn', 'setScreenPower'],
-    [enabled]
-  );
-
-  if (result.called) {
-    markPixooReachability(true);
-    markPixooScreenPower(on, {
-      forceRecovery: on
-    });
-    return result.value ?? { error_code: 0 };
-  }
-
   const response = await sendPixooCommand({
     Command: 'Channel/OnOffScreen',
     OnOff: enabled
@@ -206,15 +130,6 @@ export async function setScreen(on: boolean) {
 }
 
 export async function setCustomChannel() {
-  const result = await callClientMethod(['setChannel', 'setDeviceChannel'], [
-    PIXOO_CUSTOM_CHANNEL_INDEX
-  ]);
-
-  if (result.called) {
-    markPixooReachability(true);
-    return result.value ?? { error_code: 0 };
-  }
-
   return sendPixooCommand({
     Command: 'Channel/SetIndex',
     SelectIndex: PIXOO_CUSTOM_CHANNEL_INDEX
@@ -222,12 +137,6 @@ export async function setCustomChannel() {
 }
 
 export async function playBuzzer() {
-  const result = await callClientMethod(['playBuzzer'], [120, 80, 520]);
-
-  if (result.called) {
-    return result.value ?? { error_code: 0 };
-  }
-
   return sendPixooCommand({
     Command: 'Device/PlayBuzzer',
     ActiveTimeInCycle: 120,
@@ -237,6 +146,10 @@ export async function playBuzzer() {
 }
 
 export async function pushPixelBuffer(size: number, buffer: number[]) {
+  if (isPixooPalOff()) {
+    throw new Error('PixooPal is paused.');
+  }
+
   const resolution = normalizePixooFrameResolution(size);
   const expectedLength = resolution * resolution * 3;
 
@@ -274,33 +187,6 @@ function safeParseJson(text: string) {
   } catch {
     return text;
   }
-}
-
-export async function fillScreen(color: RGB) {
-  const pixoo = getClient();
-  await waitForPixooDrawReady();
-  await ensureInitialized(pixoo);
-  pixoo.fill(color);
-  return pixoo.push();
-}
-
-export async function clearScreen() {
-  const pixoo = getClient();
-  await waitForPixooDrawReady();
-  await ensureInitialized(pixoo);
-  pixoo.clear();
-  return pixoo.push();
-}
-
-export async function drawCenteredText(text: string, color: RGB) {
-  const pixoo = getClient();
-  const safeText = text.trim().slice(0, 24) || 'PixooPal';
-
-  await waitForPixooDrawReady();
-  await ensureInitialized(pixoo);
-  pixoo.clear();
-  pixoo.drawTextCenter(safeText, 28, color);
-  return pixoo.push();
 }
 
 export function subscribePixooRecovery(listener: PixooRecoveryListener) {
@@ -397,23 +283,6 @@ export function parseHexColor(hex: string): RGB {
     Number.parseInt(normalized.slice(3, 5), 16),
     Number.parseInt(normalized.slice(5, 7), 16)
   ];
-}
-
-function flattenBuffer(pixoo: PixooClient) {
-  const source = Array.isArray(pixoo.buffer) ? pixoo.buffer : [];
-  const output: number[] = [];
-
-  for (let index = 0; index < PIXOO_SIZE * PIXOO_SIZE; index += 1) {
-    const pixel = source[index];
-
-    if (Array.isArray(pixel) && pixel.length >= 3) {
-      output.push(clampColor(pixel[0]), clampColor(pixel[1]), clampColor(pixel[2]));
-    } else {
-      output.push(0, 0, 0);
-    }
-  }
-
-  return output;
 }
 
 function clampColor(value: unknown) {
