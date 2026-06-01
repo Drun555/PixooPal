@@ -9,6 +9,7 @@ arch:
 startup: application
 boot: auto
 image: drun555/pixoopal
+hassio_api: true
 ingress: true
 ingress_port: 5173
 panel_icon: mdi:led-strip-variant
@@ -26,4 +27,6 @@ schema:
   pixoo_device_address: str?
 environment:
   PORT: "5173"
+discovery:
+  - pixoopal
 watchdog: http://[HOST]:[PORT:5173]/api/v1/status

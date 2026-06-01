@@ -38,15 +38,15 @@
   },
   "LocalGIFVideoPlayer": {
     "data": {
-      "fileName": "80191882078__5D8AAAAC-7A1E-476E-A428-4FFA01F69382.MOV",
+      "fileName": "ghost_cut.mp4",
       "playbackSpeed": "1",
-      "status": "21 кадр."
+      "status": "120 кадр."
     },
     "state": {}
   },
   "Snake": {
     "data": {
-      "score": "11"
+      "score": "1"
     },
     "state": {}
   },
