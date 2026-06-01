@@ -9,6 +9,8 @@ export const GET: RequestHandler = async () => {
   const clockfaces = await getClockfacesView();
 
   if (!config.pixooHost) {
+    console.warn('[PixooPal] Status requested without Pixoo host configured.');
+
     const body = {
       ok: true,
       reachable: false,
@@ -30,6 +32,8 @@ export const GET: RequestHandler = async () => {
 
   try {
     const settings = await getPixooSettings();
+    console.log(`[PixooPal] Pixoo status check succeeded for ${config.pixooHost}.`);
+
     const body = {
       ok: true,
       reachable: true,
@@ -47,6 +51,10 @@ export const GET: RequestHandler = async () => {
 
     return json(body);
   } catch (error) {
+    console.warn(
+      `[PixooPal] Pixoo status check failed for ${config.pixooHost}: ${error instanceof Error ? error.message : 'Pixoo is not reachable.'}`
+    );
+
     const body = {
       ok: true,
       reachable: false,

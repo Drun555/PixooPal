@@ -1,5 +1,5 @@
 name: PixooPal
-version: "1.0.2"
+version: "1.0.3"
 slug: pixoopal
 description: SvelteKit WebUI for controlling a Divoom Pixoo display.
 url: https://github.com/Drun555/PixooPal
