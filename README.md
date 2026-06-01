@@ -30,7 +30,7 @@ docker run --rm \
   --log-driver local \
   --log-opt max-size=10m \
   --log-opt max-file=3 \
-  pixoopal/pixoopal:latest
+  drun555/pixoopal:latest
 ```
 
 Clockface state is stored in `/data`. You can override the path with
@@ -42,7 +42,7 @@ those logs in its own log store with the rotation limit shown above.
 ```yaml
 services:
   pixoopal:
-    image: pixoopal/pixoopal:latest
+    image: drun555/pixoopal:latest
     container_name: pixoopal
     restart: unless-stopped
     ports:

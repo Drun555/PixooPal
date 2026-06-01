@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
   <Name>PixooPal</Name>
-  <Repository>pixoopal/pixoopal:latest</Repository>
-  <Registry>https://hub.docker.com/r/pixoopal/pixoopal</Registry>
+  <Repository>drun555/pixoopal:latest</Repository>
+  <Registry>https://hub.docker.com/r/drun555/pixoopal</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>bash</Shell>

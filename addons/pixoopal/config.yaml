@@ -1,5 +1,5 @@
 name: PixooPal
-version: "1.0.0"
+version: "1.0.1"
 slug: pixoopal
 description: SvelteKit WebUI for controlling a Divoom Pixoo display.
 url: https://github.com/Drun555/PixooPal
@@ -8,7 +8,7 @@ arch:
   - aarch64
 startup: application
 boot: auto
-image: pixoopal/pixoopal
+image: drun555/pixoopal
 ingress: true
 ingress_port: 5173
 panel_icon: mdi:led-strip-variant

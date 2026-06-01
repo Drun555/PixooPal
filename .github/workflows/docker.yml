@@ -42,5 +42,5 @@ jobs:
           build-args: |
             BUILD_VERSION=${{ steps.version.outputs.version }}
           tags: |
-            pixoopal/pixoopal:${{ steps.version.outputs.version }}
-            pixoopal/pixoopal:latest
+            drun555/pixoopal:${{ steps.version.outputs.version }}
+            drun555/pixoopal:latest

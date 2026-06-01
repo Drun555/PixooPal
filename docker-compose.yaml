@@ -1,6 +1,6 @@
 services:
   pixoopal:
-    image: pixoopal/pixoopal:latest
+    image: drun555/pixoopal:latest
     container_name: pixoopal
     restart: unless-stopped
     ports:
