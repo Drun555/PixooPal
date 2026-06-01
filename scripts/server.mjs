@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { handler } from '../build/handler.js';
+import { advertisePixooPal } from './discovery.mjs';
 import { attachPreviewWebSocketServer } from './preview-stream.mjs';
 
 const host = process.env.HOST ?? '0.0.0.0';
@@ -23,9 +24,21 @@ const server = createServer((request, response) => {
 
 attachPreviewWebSocketServer(server);
 
+let stopDiscovery = () => {};
+
 server.listen(port, host, () => {
   console.log(`Listening on http://${host}:${port}`);
+  stopDiscovery = advertisePixooPal(port);
 });
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    stopDiscovery();
+    server.close(() => {
+      process.exit(0);
+    });
+  });
+}
 
 function shouldLogRequest(url) {
   return url.startsWith('/api/') || url.includes('/api/');

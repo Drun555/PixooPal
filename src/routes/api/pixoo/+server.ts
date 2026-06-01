@@ -9,7 +9,8 @@ import {
   getEmptyPreviewBuffer,
   getPixooRecoveryState,
   getPixooSettings,
-  setBrightness
+  setBrightness,
+  setWhiteBalance
 } from '$lib/server/pixoo';
 
 function errorResponse(error: unknown, status = 500) {
@@ -64,6 +65,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
     if (action === 'brightness') {
       result = await setBrightness(Number(payload.value));
+      refreshActiveClockfaceInBackground();
+    } else if (action === 'whiteBalance') {
+      result = await setWhiteBalance(Number(payload.red), Number(payload.green), Number(payload.blue));
       refreshActiveClockfaceInBackground();
     } else if (action === 'screen') {
       result = await setPixooScreenWithServiceClockface(Boolean(payload.on));

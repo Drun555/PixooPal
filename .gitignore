@@ -10,3 +10,5 @@ yarn-error.log*
 pnpm-debug.log*
 *.log
 .pixoopal-clockfaces.json
+.pixoopal-control.json
+.pixoopal-instance.json

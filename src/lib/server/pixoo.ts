@@ -115,6 +115,15 @@ export async function setBrightness(value: number) {
   });
 }
 
+export async function setWhiteBalance(red: number, green: number, blue: number) {
+  return sendPixooCommand({
+    Command: 'Device/SetWhiteBalance',
+    RValue: clampInt(red, 0, 100),
+    GValue: clampInt(green, 0, 100),
+    BValue: clampInt(blue, 0, 100)
+  });
+}
+
 export async function setScreen(on: boolean) {
   const enabled = on ? 1 : 0;
   const response = await sendPixooCommand({

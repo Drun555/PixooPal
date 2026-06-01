@@ -28,6 +28,7 @@ services:
       - "5173:5173"
     environment:
       PIXOO_DEVICE_ADDRESS: ${PIXOO_DEVICE_ADDRESS:-192.168.x.x}
+      PIXOOPAL_INSTANCE_NAME: PixooPal
       PORT: "5173"
       PIXOOPAL_DATA_DIR: /data
     volumes:
@@ -38,6 +39,31 @@ services:
         max-size: "10m"
         max-file: "3"
 ```
+
+## Home Assistant Discovery
+
+PixooPal publishes a Zeroconf/mDNS service named `_pixoopal._tcp.local.` on
+port `5173`. Home Assistant integrations can use that record to discover the
+instance and then call:
+
+```text
+GET /api/v1/discovery
+```
+
+The response includes a stable instance id, the PixooPal version, API paths,
+and whether a Pixoo address is configured. The instance id is stored in
+`PIXOOPAL_DATA_DIR` as `.pixoopal-instance.json`, so it survives container
+restarts.
+
+Optional environment variables:
+
+```text
+PIXOOPAL_INSTANCE_NAME=PixooPal
+PIXOOPAL_DISABLE_MDNS=1
+```
+
+If Docker networking blocks multicast DNS, run PixooPal on a network that can
+publish mDNS to Home Assistant, or configure the integration URL manually.
 
 ## Running Locally
 

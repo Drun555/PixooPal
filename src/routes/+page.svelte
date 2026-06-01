@@ -1,10 +1,27 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Bell, Layers, Monitor, Power, Send, Sun, Volume2, Wifi } from '@lucide/svelte';
+  import {
+    Bell,
+    Layers,
+    Monitor,
+    Palette,
+    Power,
+    RotateCcw,
+    Send,
+    Sun,
+    Volume2,
+    Wifi
+  } from '@lucide/svelte';
   import ClockfaceInputs from '$lib/components/ClockfaceInputs.svelte';
 
   type PixooSettings = {
     Brightness?: number;
+    RValue?: number;
+    GValue?: number;
+    BValue?: number;
+    WhiteBalanceR?: number;
+    WhiteBalanceG?: number;
+    WhiteBalanceB?: number;
     LightSwitch?: number;
     CurClockId?: number;
     Time24Flag?: number;
@@ -124,6 +141,12 @@
   let pixooAddress = '';
   let pixooPalOff = false;
   let brightness = 50;
+  let whiteBalance = {
+    red: 100,
+    green: 100,
+    blue: 100
+  };
+  let whiteBalanceOpen = false;
   let powered = true;
   let notificationText = '';
   let notificationBeep = true;
@@ -156,9 +179,25 @@
       brightness = settings.Brightness;
     }
 
+    whiteBalance = {
+      red: getSettingsNumber(settings.RValue, settings.WhiteBalanceR, whiteBalance.red),
+      green: getSettingsNumber(settings.GValue, settings.WhiteBalanceG, whiteBalance.green),
+      blue: getSettingsNumber(settings.BValue, settings.WhiteBalanceB, whiteBalance.blue)
+    };
+
     if (typeof settings.LightSwitch === 'number') {
       powered = settings.LightSwitch === 1;
     }
+  }
+
+  function getSettingsNumber(...values: unknown[]) {
+    for (const value of values) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+    }
+
+    return 100;
   }
 
   function syncControl(control: StatusPayload['control'] | ControlPayload['control'] | undefined) {
@@ -565,15 +604,34 @@
     }
   }
 
-  function submitClockfaceFileInput(id: string, file: File) {
-    const form = new FormData();
-    form.set('inputId', id);
-    form.set('value', file);
-
+  async function submitClockfaceFileInput(id: string, file: File) {
     return fetch(apiUrl('/api/v1/clockfaces/input'), {
       method: 'POST',
-      body: form
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        inputId: id,
+        file: {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          bytesBase64: await fileToBase64(file)
+        }
+      })
     });
+  }
+
+  async function fileToBase64(file: File) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = '';
+    const chunkSize = 0x8000;
+
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    }
+
+    return btoa(binary);
   }
 
   async function submitNotification() {
@@ -626,6 +684,20 @@
     } catch (error) {
       setButtonState(key, 'error');
     }
+  }
+
+  async function applyWhiteBalance() {
+    await sendAction('whiteBalance', 'whiteBalance', whiteBalance);
+  }
+
+  function resetWhiteBalance() {
+    whiteBalance = {
+      red: 100,
+      green: 100,
+      blue: 100
+    };
+
+    applyWhiteBalance();
   }
 
   function getPixooConnectionLabel(nextStatus: StatusPayload | null) {
@@ -749,6 +821,86 @@
           <Sun size={18} />
           <span>Brightness</span>
           <strong>{brightness}%</strong>
+          <div class="white-balance-menu">
+            <button
+              aria-expanded={whiteBalanceOpen}
+              aria-label="White balance"
+              class:error={buttonState.whiteBalance === 'error'}
+              class:sent={buttonState.whiteBalance === 'sent'}
+              class="icon-button white-balance-button"
+              disabled={buttonState.whiteBalance === 'busy'}
+              type="button"
+              onclick={() => {
+                whiteBalanceOpen = !whiteBalanceOpen;
+              }}
+            >
+              <Palette size={16} />
+            </button>
+
+            {#if whiteBalanceOpen}
+              <div class="white-balance-popover" role="dialog" aria-label="White balance settings">
+                <div class="popover-title">
+                  <span>White balance</span>
+                  <button
+                    aria-label="Reset white balance"
+                    class="icon-button"
+                    disabled={buttonState.whiteBalance === 'busy'}
+                    type="button"
+                    onclick={resetWhiteBalance}
+                  >
+                    <RotateCcw size={15} />
+                  </button>
+                </div>
+
+                <label class="balance-slider red">
+                  <span>Red</span>
+                  <strong>{whiteBalance.red}%</strong>
+                  <input
+                    aria-label="White balance red"
+                    type="range"
+                    min="0"
+                    max="100"
+                    bind:value={whiteBalance.red}
+                  />
+                </label>
+
+                <label class="balance-slider green">
+                  <span>Green</span>
+                  <strong>{whiteBalance.green}%</strong>
+                  <input
+                    aria-label="White balance green"
+                    type="range"
+                    min="0"
+                    max="100"
+                    bind:value={whiteBalance.green}
+                  />
+                </label>
+
+                <label class="balance-slider blue">
+                  <span>Blue</span>
+                  <strong>{whiteBalance.blue}%</strong>
+                  <input
+                    aria-label="White balance blue"
+                    type="range"
+                    min="0"
+                    max="100"
+                    bind:value={whiteBalance.blue}
+                  />
+                </label>
+
+                <button
+                  class:error={buttonState.whiteBalance === 'error'}
+                  class:sent={buttonState.whiteBalance === 'sent'}
+                  class="apply-balance"
+                  disabled={buttonState.whiteBalance === 'busy'}
+                  type="button"
+                  onclick={applyWhiteBalance}
+                >
+                  {actionLabel('whiteBalance', 'Apply')}
+                </button>
+              </div>
+            {/if}
+          </div>
         </div>
 
         <input
@@ -1187,6 +1339,11 @@
     padding: 14px;
   }
 
+  .brightness-block {
+    position: relative;
+    z-index: 20;
+  }
+
   .control-heading,
   .panel-title {
     display: flex;
@@ -1206,6 +1363,131 @@
     margin-left: auto;
     color: #ffffff;
     font-size: 0.9rem;
+  }
+
+  .white-balance-menu {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+  }
+
+  .icon-button {
+    display: inline-grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #d9e2ec;
+    background: rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+    transition:
+      color 160ms ease,
+      background 160ms ease,
+      border-color 160ms ease;
+  }
+
+  .icon-button:hover,
+  .white-balance-button.sent {
+    color: #07110f;
+    border-color: transparent;
+    background: #76dcca;
+  }
+
+  .white-balance-button.error {
+    color: #ffffff;
+    border-color: transparent;
+    background: #b84b45;
+  }
+
+  .icon-button:disabled {
+    cursor: progress;
+    opacity: 0.68;
+  }
+
+  .white-balance-popover {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    z-index: 40;
+    display: grid;
+    width: min(320px, calc(100vw - 56px));
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    background: rgba(12, 16, 23, 0.98);
+    box-shadow:
+      0 22px 62px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .popover-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: #edf2f7;
+    font-size: 0.9rem;
+    font-weight: 900;
+  }
+
+  .popover-title .icon-button {
+    width: 30px;
+    height: 30px;
+  }
+
+  .balance-slider {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 10px;
+    align-items: center;
+    color: #aeb9c8;
+    font-size: 0.78rem;
+    font-weight: 850;
+  }
+
+  .balance-slider strong {
+    color: #edf2f7;
+    font-size: 0.78rem;
+  }
+
+  .balance-slider input {
+    grid-column: 1 / -1;
+  }
+
+  .balance-slider.red input {
+    accent-color: #ff6f78;
+  }
+
+  .balance-slider.green input {
+    accent-color: #76dcca;
+  }
+
+  .balance-slider.blue input {
+    accent-color: #75a7ff;
+  }
+
+  .apply-balance {
+    display: inline-flex;
+    min-height: 38px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: #07110f;
+    background: #76dcca;
+    cursor: pointer;
+    font-weight: 900;
+  }
+
+  .apply-balance.error {
+    color: #ffffff;
+    background: #b84b45;
+  }
+
+  .apply-balance:disabled {
+    cursor: progress;
+    opacity: 0.68;
   }
 
   input[type='range'] {

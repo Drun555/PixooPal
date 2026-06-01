@@ -60,6 +60,15 @@ export const POST: RequestHandler = async ({ request }) => {
     }
 
     if (action === 'submitInput') {
+      const file = parseJsonFileInput(payload);
+
+      if (file) {
+        return json({
+          ok: true,
+          ...(await submitClockfaceInput(String(payload.id ?? payload.inputId ?? ''), file))
+        });
+      }
+
       return json({
         ok: true,
         ...(await submitClockfaceInput(String(payload.id ?? ''), String(payload.value ?? '')))
@@ -78,3 +87,27 @@ export const POST: RequestHandler = async ({ request }) => {
     return errorResponse(error);
   }
 };
+
+function parseJsonFileInput(payload: unknown) {
+  if (!isRecord(payload) || !isRecord(payload.file)) {
+    return undefined;
+  }
+
+  const { file } = payload;
+  const bytesBase64 = typeof file.bytesBase64 === 'string' ? file.bytesBase64 : '';
+
+  if (!bytesBase64) {
+    return undefined;
+  }
+
+  return {
+    name: typeof file.name === 'string' ? file.name : 'upload',
+    type: typeof file.type === 'string' ? file.type : '',
+    size: typeof file.size === 'number' ? file.size : 0,
+    bytes: new Uint8Array(Buffer.from(bytesBase64, 'base64'))
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
