@@ -4,7 +4,7 @@ const PORT_ALIASES = new Set(['--webui-port', '--web-port', '--port', '-p']);
 export function parseRuntimeArgs(argv) {
   const forwarded = [];
   let pixooAddress = process.env.PIXOO_DEVICE_ADDRESS ?? '';
-  let webuiPort = process.env.PORT ?? '';
+  let webuiPort = process.env.PORT ?? '5173';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -36,9 +36,7 @@ export function applyRuntimeEnv(parsed) {
     process.env.PIXOO_DEVICE_ADDRESS = parsed.pixooAddress;
   }
 
-  if (parsed.webuiPort) {
-    process.env.PORT = parsed.webuiPort;
-  }
+  process.env.PORT = parsed.webuiPort || '5173';
 
   process.env.HOST ??= '0.0.0.0';
 }

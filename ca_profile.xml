@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>PixooPal packages and templates for running the PixooPal Web UI on Unraid.</Profile>
+  <Icon>https://raw.githubusercontent.com/Drun555/PixooPal/main/Picture.png</Icon>
+  <WebPage>https://github.com/Drun555/PixooPal</WebPage>
+  <Forum>https://github.com/Drun555/PixooPal/issues</Forum>
+</CommunityApplications>

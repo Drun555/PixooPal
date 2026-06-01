@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>PixooPal</Name>
+  <Repository>pixoopal/pixoopal:latest</Repository>
+  <Registry>https://hub.docker.com/r/pixoopal/pixoopal</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Drun555/PixooPal/issues</Support>
+  <Project>https://github.com/Drun555/PixooPal</Project>
+  <Overview>SvelteKit WebUI for controlling a Divoom Pixoo display.</Overview>
+  <Description>PixooPal provides a browser UI, live preview, clockfaces, notifications, and direct controls for a Divoom Pixoo display on your local network.</Description>
+  <Category>Tools:Utilities</Category>
+  <WebUI>http://[IP]:[PORT:5173]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Drun555/PixooPal/main/templates/pixoopal.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Drun555/PixooPal/main/Picture.png</Icon>
+  <Config Name="WebUI Port" Target="5173" Default="5173" Mode="tcp" Description="PixooPal Web UI port." Type="Port" Display="always" Required="true" Mask="false">5173</Config>
+  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/pixoopal" Mode="rw" Description="Persistent PixooPal clockface state." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/pixoopal</Config>
+  <Config Name="Pixoo Device Address" Target="PIXOO_DEVICE_ADDRESS" Default="" Mode="" Description="Pixoo host or IP address on your local network." Type="Variable" Display="always" Required="false" Mask="false"/>
+</Container>

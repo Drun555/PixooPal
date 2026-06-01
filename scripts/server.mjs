@@ -3,7 +3,7 @@ import { handler } from '../build/handler.js';
 import { attachPreviewWebSocketServer } from './preview-stream.mjs';
 
 const host = process.env.HOST ?? '0.0.0.0';
-const port = Number.parseInt(process.env.PORT ?? '3000', 10);
+const port = Number.parseInt(process.env.PORT ?? '5173', 10);
 const server = createServer(handler);
 
 attachPreviewWebSocketServer(server);

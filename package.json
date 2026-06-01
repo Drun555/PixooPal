@@ -8,6 +8,7 @@
     "build:emoji": "node ./scripts/build-dotto-emoji.mjs",
     "build": "vite build",
     "preview": "node ./scripts/run-preview.mjs",
+    "release": "node ./scripts/release.mjs",
     "start": "node ./scripts/run-start.mjs",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },

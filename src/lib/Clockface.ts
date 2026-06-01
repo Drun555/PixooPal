@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { env } from '$env/dynamic/private';
 
 export type ClockfaceInputType =
   | 'button'
@@ -256,7 +257,10 @@ type PersistedClockfaceEntry = {
 
 type PersistedClockfacesFile = Record<string, PersistedClockfaceEntry>;
 
-const PERSISTENCE_FILE = join(process.cwd(), '.pixoopal-clockfaces.json');
+const PERSISTENCE_FILE = join(
+  env.PIXOOPAL_DATA_DIR || (existsSync('/data') ? '/data' : process.cwd()),
+  '.pixoopal-clockfaces.json'
+);
 
 function readPersistedClockface(key: string) {
   const file = readPersistenceFile();

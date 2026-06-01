@@ -1,0 +1,14 @@
+.git
+.github
+.svelte-kit
+build
+node_modules
+.env
+.env.*
+*.log
+Dockerfile
+README.md
+addons
+templates
+ca_profile.xml
+repository.yaml

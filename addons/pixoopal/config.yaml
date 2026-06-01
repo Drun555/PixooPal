@@ -1,0 +1,29 @@
+name: PixooPal
+version: "1.0.0"
+slug: pixoopal
+description: SvelteKit WebUI for controlling a Divoom Pixoo display.
+url: https://github.com/Drun555/PixooPal
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+image: pixoopal/pixoopal
+ingress: true
+ingress_port: 5173
+panel_icon: mdi:led-strip-variant
+panel_title: PixooPal
+ports:
+  5173/tcp: null
+ports_description:
+  5173/tcp: PixooPal Web UI
+map:
+  - type: data
+    read_only: false
+options:
+  pixoo_device_address: ""
+schema:
+  pixoo_device_address: str?
+environment:
+  PORT: "5173"
+watchdog: http://[HOST]:[PORT:5173]/api/v1/status

@@ -1,0 +1,18 @@
+services:
+  pixoopal:
+    image: pixoopal/pixoopal:latest
+    container_name: pixoopal
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      PIXOO_DEVICE_ADDRESS: ${PIXOO_DEVICE_ADDRESS:-192.168.6.3}
+      PORT: "5173"
+      PIXOOPAL_DATA_DIR: /data
+    volumes:
+      - ./pixoopal-data:/data
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
