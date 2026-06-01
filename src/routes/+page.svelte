@@ -268,6 +268,25 @@
     }
   }
 
+  function apiUrl(path: string) {
+    if (typeof window === 'undefined') {
+      return path;
+    }
+
+    const normalizedPath = path.replace(/^\//, '');
+    const basePath = window.location.pathname.endsWith('/')
+      ? window.location.pathname
+      : `${window.location.pathname}/`;
+
+    return new URL(normalizedPath, `${window.location.origin}${basePath}`).toString();
+  }
+
+  function apiWebSocketUrl(path: string) {
+    const url = new URL(apiUrl(path));
+    url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString();
+  }
+
   function actionLabel(key: string, label: string) {
     if (buttonState[key] === 'busy') {
       return 'Отправка';
@@ -290,7 +309,7 @@
     }
 
     try {
-      const response = await fetch('/api/v1/status');
+      const response = await fetch(apiUrl('/api/v1/status'));
       const body = (await response.json()) as StatusPayload;
       status = body;
       syncConfig(body.config);
@@ -307,7 +326,7 @@
   }
 
   async function refreshClockfaces() {
-    const response = await fetch('/api/v1/clockfaces');
+    const response = await fetch(apiUrl('/api/v1/clockfaces'));
     const body = (await response.json()) as ClockfacesPayload;
 
     if (!response.ok || body.ok === false) {
@@ -318,7 +337,7 @@
   }
 
   async function refreshPreviewSnapshot() {
-    const response = await fetch('/api/v1/preview.jpg', {
+    const response = await fetch(apiUrl('/api/v1/preview.jpg'), {
       cache: 'no-store'
     });
 
@@ -367,8 +386,7 @@
     clearTimeout(previewReconnectTimer);
     previewSocket?.close();
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/events`);
+    const socket = new WebSocket(apiWebSocketUrl('/api/v1/events'));
     previewSocket = socket;
 
     socket.onopen = () => {
@@ -434,7 +452,7 @@
   }
 
   async function refreshConfig() {
-    const response = await fetch('/api/config');
+    const response = await fetch(apiUrl('/api/config'));
     const body = (await response.json()) as { ok: boolean; config: StatusPayload['config'] };
     syncConfig(body.config);
   }
@@ -450,7 +468,7 @@
     setButtonState(key, 'busy');
 
     try {
-      const response = await fetch('/api/config', {
+      const response = await fetch(apiUrl('/api/config'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json'
@@ -475,7 +493,7 @@
     activeClockfaceId = id;
 
     try {
-      const response = await fetch('/api/v1/clockfaces/current', {
+      const response = await fetch(apiUrl('/api/v1/clockfaces/current'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json'
@@ -502,7 +520,7 @@
       const response =
         value instanceof File
           ? await submitClockfaceFileInput(id, value)
-          : await fetch('/api/v1/clockfaces/input', {
+          : await fetch(apiUrl('/api/v1/clockfaces/input'), {
               method: 'POST',
               headers: {
                 'content-type': 'application/json'
@@ -527,7 +545,7 @@
     form.set('inputId', id);
     form.set('value', file);
 
-    return fetch('/api/v1/clockfaces/input', {
+    return fetch(apiUrl('/api/v1/clockfaces/input'), {
       method: 'POST',
       body: form
     });
@@ -538,7 +556,7 @@
     setButtonState(key, 'busy');
 
     try {
-      const response = await fetch('/api/v1/notify', {
+      const response = await fetch(apiUrl('/api/v1/notify'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json'
@@ -565,7 +583,7 @@
     setButtonState(key, 'busy');
 
     try {
-      const response = await fetch('/api/pixoo', {
+      const response = await fetch(apiUrl('/api/pixoo'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json'

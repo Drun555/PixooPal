@@ -17,7 +17,7 @@ export function attachPreviewWebSocketServer(server) {
   server.on('upgrade', (request, socket, head) => {
     const url = request.url ? new URL(request.url, 'http://localhost') : undefined;
 
-    if (!url || !EVENT_WS_PATHS.has(url.pathname)) {
+    if (!url || !isEventWebSocketPath(url.pathname)) {
       return;
     }
 
@@ -33,6 +33,13 @@ export function attachPreviewWebSocketServer(server) {
   });
 
   state.attachedServers.add(server);
+}
+
+/**
+ * @param {string} pathname
+ */
+function isEventWebSocketPath(pathname) {
+  return EVENT_WS_PATHS.has(pathname) || [...EVENT_WS_PATHS].some((path) => pathname.endsWith(path));
 }
 
 function getPreviewStreamState() {
