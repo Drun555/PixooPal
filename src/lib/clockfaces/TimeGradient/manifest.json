@@ -1,0 +1,6 @@
+{
+  "entry": "./TimeGradient.ts",
+  "name": "Time Gradient",
+  "description": "A colorful clock rendered over a shifting gradient background.",
+  "picture": "./picture.png"
+}

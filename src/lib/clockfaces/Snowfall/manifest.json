@@ -1,0 +1,6 @@
+{
+  "entry": "./Snowfall.ts",
+  "name": "Snowfall",
+  "description": "A calm animated snowfall scene with configurable flake count.",
+  "picture": "./picture.png"
+}

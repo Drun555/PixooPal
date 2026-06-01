@@ -1,0 +1,6 @@
+{
+  "entry": "./Scoreboard.ts",
+  "name": "Scoreboard",
+  "description": "A simple two-team scoreboard with increment and reset controls.",
+  "picture": "./picture.png"
+}

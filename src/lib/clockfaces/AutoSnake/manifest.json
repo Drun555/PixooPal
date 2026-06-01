@@ -1,0 +1,5 @@
+{
+  "entry": "./AutoSnake.ts",
+  "name": "Auto-Snake",
+  "description": "A self-playing Snake clockface."
+}

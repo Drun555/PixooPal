@@ -1,0 +1,6 @@
+{
+  "entry": "./DisplayText.ts",
+  "name": "Display Text",
+  "description": "Centered bitmap text with configurable foreground and background colors.",
+  "picture": "./picture.png"
+}

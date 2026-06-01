@@ -1,0 +1,6 @@
+{
+  "entry": "./Weather.ts",
+  "name": "Weather",
+  "description": "Current weather with animated GIF backgrounds and large temperature text.",
+  "picture": "./clear.gif"
+}

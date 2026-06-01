@@ -1,0 +1,33 @@
+{
+  "name": "pixoopal",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ./scripts/run-dev.mjs",
+    "build:emoji": "node ./scripts/build-dotto-emoji.mjs",
+    "build": "vite build",
+    "preview": "node ./scripts/run-preview.mjs",
+    "start": "node ./scripts/run-start.mjs",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@lucide/svelte": "latest",
+    "@types/ws": "^8.18.1",
+    "gifuct-js": "^2.1.2",
+    "pixoo-api": "latest",
+    "pureimage": "^0.4.18",
+    "sharp": "^0.34.5",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-node": "latest",
+    "@sveltejs/kit": "latest",
+    "@sveltejs/vite-plugin-svelte": "latest",
+    "@types/node": "latest",
+    "svelte": "latest",
+    "svelte-check": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}

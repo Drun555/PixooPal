@@ -1,0 +1,6 @@
+{
+  "entry": "./Doom.ts",
+  "name": "Doom",
+  "description": "A tiny raycaster shooter scene inspired by classic DOOM.",
+  "picture": "./picture.png"
+}
