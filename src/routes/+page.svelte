@@ -1099,7 +1099,6 @@
   .preview-stage {
     position: relative;
     display: grid;
-    min-height: min(58vh, 560px);
     gap: 14px;
     place-items: center;
     isolation: isolate;
