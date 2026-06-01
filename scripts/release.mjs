@@ -61,11 +61,13 @@ function updateJsonFile(path, update) {
 function updateHomeAssistantConfig(nextVersion) {
   const path = 'addons/pixoopal/config.yaml';
   const current = readFileSync(path, 'utf-8');
-  const next = current.replace(/^version:\s*["']?.*?["']?\s*$/m, `version: "${nextVersion}"`);
+  const versionPattern = /^version:\s*["']?.*?["']?\s*$/m;
 
-  if (next === current) {
+  if (!versionPattern.test(current)) {
     throw new Error(`${path} does not contain a version field.`);
   }
+
+  const next = current.replace(versionPattern, `version: "${nextVersion}"`);
 
   writeFileSync(path, next, 'utf-8');
 }
