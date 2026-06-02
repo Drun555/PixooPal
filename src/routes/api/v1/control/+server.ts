@@ -11,10 +11,11 @@ export function GET() {
 export const POST: RequestHandler = async ({ request }) => {
   const payload = await request.json().catch(() => ({}));
   const pixooPalOff = isRecord(payload) && payload.pixooPalOff === true;
+  const control = setPixooPalOff(pixooPalOff);
 
   return json({
     ok: true,
-    control: setPixooPalOff(pixooPalOff)
+    control
   });
 };
 

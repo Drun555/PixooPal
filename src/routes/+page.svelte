@@ -13,6 +13,7 @@
     Wifi
   } from '@lucide/svelte';
   import ClockfaceInputs from '$lib/components/ClockfaceInputs.svelte';
+  import ClockfacePreview from '$lib/components/ClockfacePreview.svelte';
 
   type PixooSettings = {
     Brightness?: number;
@@ -150,9 +151,7 @@
   let powered = true;
   let notificationText = '';
   let notificationBeep = true;
-  let previewCanvas: HTMLCanvasElement;
   let preview = createEmptyPreview();
-  let glowColor = 'rgba(47, 138, 122, 0.45)';
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
@@ -160,9 +159,6 @@
   $: pixooAddressConfigured = Boolean(status?.config?.pixooHost || pixooAddress);
   $: pixooConnectionLabel = getPixooConnectionLabel(status);
   $: pixooConnectionMessage = getPixooConnectionMessage(status);
-  $: paintPreview(previewCanvas, preview);
-  $: previewStyle = `--preview-glow: ${glowColor}`;
-
   function createEmptyPreview(): PreviewPayload {
     return {
       size: PREVIEW_SIZE,
@@ -252,69 +248,6 @@
           }
         : clockface
     );
-  }
-
-  function paintPreview(canvas: HTMLCanvasElement | undefined, nextPreview: PreviewPayload) {
-    if (!canvas) {
-      return;
-    }
-
-    const size = nextPreview.size || PREVIEW_SIZE;
-    const buffer = nextPreview.buffer;
-    const context = canvas.getContext('2d');
-
-    if (!context || buffer.length < size * size * 3) {
-      return;
-    }
-
-    if (canvas.width !== size) {
-      canvas.width = size;
-    }
-
-    if (canvas.height !== size) {
-      canvas.height = size;
-    }
-
-    const imageData = context.createImageData(size, size);
-
-    for (let index = 0, pixel = 0; index < buffer.length; index += 3, pixel += 4) {
-      imageData.data[pixel] = buffer[index] ?? 0;
-      imageData.data[pixel + 1] = buffer[index + 1] ?? 0;
-      imageData.data[pixel + 2] = buffer[index + 2] ?? 0;
-      imageData.data[pixel + 3] = 255;
-    }
-
-    context.putImageData(imageData, 0, 0);
-    glowColor = getGlowColor(buffer);
-  }
-
-  function getGlowColor(buffer: number[]) {
-    let red = 0;
-    let green = 0;
-    let blue = 0;
-    let weight = 0;
-
-    for (let index = 0; index < buffer.length; index += 3) {
-      const pixelRed = buffer[index] ?? 0;
-      const pixelGreen = buffer[index + 1] ?? 0;
-      const pixelBlue = buffer[index + 2] ?? 0;
-      const brightness = Math.max(pixelRed, pixelGreen, pixelBlue);
-
-      if (brightness > 12) {
-        red += pixelRed * brightness;
-        green += pixelGreen * brightness;
-        blue += pixelBlue * brightness;
-        weight += brightness;
-      }
-    }
-
-    if (weight === 0) {
-      return 'rgba(47, 138, 122, 0.42)';
-    }
-
-    return `rgba(${Math.round(red / weight)}, ${Math.round(green / weight)}, ${Math.round(
-      blue / weight
-    )}, 0.54)`;
   }
 
   function setButtonState(key: string, state: ActionState) {
@@ -782,21 +715,7 @@
       <p class="connection-note">{pixooConnectionMessage}</p>
     </section>
 
-    <section class="preview-stage" style={previewStyle}>
-      <div class="preview-aura"></div>
-      <div class="preview-shell">
-        <div class="pixoo-frame">
-          <div class="pixel-screen">
-            <canvas
-              aria-label="Pixoo Buffer"
-              bind:this={previewCanvas}
-              height={PREVIEW_SIZE}
-              width={PREVIEW_SIZE}
-            ></canvas>
-          </div>
-        </div>
-      </div>
-    </section>
+    <ClockfacePreview {preview} />
   </div>
 
   <div class="right-column">
@@ -1043,7 +962,7 @@
   :global(body) {
     margin: 0;
     min-width: 320px;
-    min-height: 100vh;
+    min-height: calc(100vh - 50px);
     background:
       radial-gradient(circle at 50% 17%, rgba(56, 72, 96, 0.34), transparent 24rem),
       linear-gradient(180deg, #10141d 0%, #07090d 100%);
@@ -1094,14 +1013,6 @@
 
   .right-column {
     align-content: center;
-  }
-
-  .preview-stage {
-    position: relative;
-    display: grid;
-    gap: 14px;
-    place-items: center;
-    isolation: isolate;
   }
 
   .pixoo-status-card {
@@ -1170,66 +1081,6 @@
     color: #91a1b5;
     font-size: 0.78rem;
     line-height: 1.35;
-  }
-
-  .preview-aura {
-    position: absolute;
-    z-index: -1;
-    width: min(78vw, 520px);
-    aspect-ratio: 1;
-    border-radius: 50%;
-    background: var(--preview-glow);
-    filter: blur(58px);
-    opacity: 0.82;
-    transform: scale(0.92);
-  }
-
-  .preview-shell {
-    width: min(calc(42vw + 44px), 474px);
-    max-width: 100%;
-    padding: clamp(14px, 3vw, 22px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02)),
-      rgba(10, 13, 18, 0.72);
-    box-shadow:
-      0 0 80px var(--preview-glow),
-      0 26px 82px rgba(0, 0, 0, 0.58),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(18px);
-  }
-
-  .pixoo-frame {
-    width: 100%;
-    aspect-ratio: 1;
-    border-radius: 26px;
-    background:
-      linear-gradient(145deg, #2a303b, #11151d 62%),
-      #151a23;
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-      inset 0 -16px 28px rgba(0, 0, 0, 0.26);
-  }
-
-  .pixel-screen {
-    display: grid;
-    width: 100%;
-    height: 100%;
-    place-items: center;
-    overflow: hidden;
-    border-radius: 13px;
-    background: #030405;
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-      inset 0 0 44px rgba(0, 0, 0, 0.84);
-  }
-
-  canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
-    image-rendering: pixelated;
   }
 
   .device-controls,
@@ -1656,25 +1507,11 @@
       justify-items: stretch;
     }
 
-    .preview-stage {
-      min-height: 0;
-      padding: 8px 0;
-    }
-
     .device-controls {
       grid-template-columns: 1fr;
     }
 
-    .pixoo-status-card,
-    .preview-shell {
-      width: 100%;
-    }
-
-    .preview-aura {
-      width: min(110vw, 520px);
-    }
-
-    .pixoo-frame {
+    .pixoo-status-card {
       width: 100%;
     }
 

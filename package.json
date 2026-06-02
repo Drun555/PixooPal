@@ -14,11 +14,13 @@
   },
   "dependencies": {
     "@lucide/svelte": "latest",
+    "@pixoopal/clockface": "^0.1.5",
     "@types/ws": "^8.18.1",
     "bonjour-service": "^1.4.0",
     "gifuct-js": "^2.1.2",
     "pureimage": "^0.4.18",
     "sharp": "^0.34.5",
+    "shiki": "^4.1.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {

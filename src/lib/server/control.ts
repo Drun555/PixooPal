@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { env } from '$env/dynamic/private';
+import { getDataPath } from './dataDir';
 
 export type PixooPalControlState = {
   pixooPalOff: boolean;
@@ -8,10 +7,7 @@ export type PixooPalControlState = {
 
 type ControlListener = (state: PixooPalControlState) => void | Promise<void>;
 
-const CONTROL_FILE = join(
-  env.PIXOOPAL_DATA_DIR || (existsSync('/data') ? '/data' : process.cwd()),
-  '.pixoopal-control.json'
-);
+const CONTROL_FILE = getDataPath('.pixoopal-control.json');
 
 const controlState = getInitialControlState();
 const listeners = new Set<ControlListener>();

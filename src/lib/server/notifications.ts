@@ -3,7 +3,7 @@ import {
   getBitmapTextRenderHeight,
   measureBitmapText,
   type BitmapTextColor
-} from './bitmapText';
+} from '@pixoopal/clockface/bitmap-text';
 
 const SCREEN_SIZE = 64;
 const POPUP_HEIGHT = 21;

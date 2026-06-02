@@ -20,8 +20,7 @@ ARG BUILD_VERSION=0.0.1
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=5173 \
-    PIXOOPAL_DATA_DIR=/data
+    PORT=5173
 
 LABEL io.hass.version="${BUILD_VERSION}" \
       io.hass.type="app" \

@@ -1,4 +1,6 @@
-import type { Clockface, ClockfaceInput, ClockfaceInputValue } from '$lib/Clockface';
+import { stat } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+import { Clockface, type ClockfaceInput, type ClockfaceInputValue } from '@pixoopal/clockface';
 import {
   applyNotificationOverlay,
   isNotificationActive,
@@ -17,6 +19,8 @@ import {
   subscribePixooRecovery
 } from './pixoo';
 import { publishPixooPalEvent, publishPreviewFrame } from './previewStream';
+import { fileClockfacePersistenceStore } from './clockfacePersistence';
+import { getInstalledCommunityClockfaces } from './communityClockfaces';
 
 export type ClockfaceInputView = Omit<ClockfaceInput, 'onSubmit'>;
 export type ClockfaceInputRowView = ClockfaceInputView[];
@@ -36,12 +40,32 @@ type ClockfaceModule = {
   default: Clockface;
 };
 
+type ClockfaceFrameProvider = {
+  getFrame?: () => {
+    size: number;
+    buffer: number[];
+  };
+};
+
+type ClockfaceFrameQueueProvider = {
+  frameQueueSize?: number;
+};
+
 type ClockfaceManifest = {
   entry: string;
   name: string;
   id?: string;
   description?: string;
   picture?: string;
+};
+
+type ClockfaceEntry = {
+  id: string;
+  name: string;
+  description?: string;
+  picture?: string;
+  instance: Clockface;
+  source: 'bundled' | 'community';
 };
 
 type ClockfaceRunner = {
@@ -82,6 +106,7 @@ type ClockfaceRuntimeState = {
 
 const clockfaceRuntimeState = getClockfaceRuntimeState();
 clockfaceRuntimeState.dispose?.();
+Clockface.configurePersistence(fileClockfacePersistenceStore);
 
 const manifests = import.meta.glob<ClockfaceManifest>('../clockfaces/*/manifest.json', {
   eager: true,
@@ -91,7 +116,7 @@ const modules = import.meta.glob<ClockfaceModule>('../clockfaces/**/*.ts', {
   eager: true
 });
 
-const clockfaces = Object.entries(manifests)
+const bundledClockfaces: ClockfaceEntry[] = Object.entries(manifests)
   .map(([manifestPath, manifest]) => {
     const modulePath = getManifestModulePath(manifestPath, manifest);
     const module = modules[modulePath];
@@ -106,13 +131,17 @@ const clockfaces = Object.entries(manifests)
       name: normalizeOptionalManifestString(manifest.name) ?? getClockfaceName(id),
       description: normalizeOptionalManifestString(manifest.description),
       picture: normalizeOptionalManifestString(manifest.picture),
-      instance: module.default
+      instance: module.default,
+      source: 'bundled' as const
     };
   })
   .sort((left, right) => left.name.localeCompare(right.name));
 
-const persistenceReady = Promise.all(
-  clockfaces.map(({ id, instance }) => instance.attachPersistence(id))
+let clockfaces = [...bundledClockfaces];
+let communityClockfacesReady: Promise<void> | undefined = refreshInstalledCommunityClockfaces();
+
+const bundledPersistenceReady = Promise.all(
+  bundledClockfaces.map(({ id, instance }) => instance.attachPersistence(id))
 );
 
 clockfaceRuntimeState.activeClockfaceId = getInitialActiveClockfaceId();
@@ -170,13 +199,28 @@ clockfaceRuntimeState.controlUnsubscribe = subscribePixooPalControl(async (contr
 
 refreshActiveClockfaceInBackground();
 
+export async function refreshCommunityClockfaces() {
+  const previousActiveId = getActiveClockfaceId();
+  communityClockfacesReady = refreshInstalledCommunityClockfaces();
+  await communityClockfacesReady;
+
+  if (previousActiveId && !clockfaces.some((clockface) => clockface.id === previousActiveId)) {
+    await stopActiveClockface();
+    clockfaceRuntimeState.activeClockfaceId = getInitialActiveClockfaceId();
+
+    if (!isClockfacesPaused()) {
+      await startActiveClockface(getActiveClockfaceId());
+    }
+  }
+}
+
 export async function getClockfacesView() {
   await waitForClockfaces();
 
   return {
     activeId: getActiveClockfaceId(),
     clockfaces: await Promise.all(
-      clockfaces.map(async ({ instance, ...clockface }) => ({
+      clockfaces.map(async ({ instance, source: _source, ...clockface }) => ({
         ...clockface,
         ...(await toClockfaceView(instance))
       }))
@@ -198,6 +242,8 @@ export async function getActiveClockfacePreview() {
 }
 
 export async function setActiveClockface(id: string) {
+  await waitForClockfaces();
+
   const clockface = getClockfaceEntry(id);
   await stopActiveClockface();
   clockfaceRuntimeState.activeClockfaceId = clockface.id;
@@ -425,8 +471,44 @@ function toClockfaceInputView({
 }
 
 async function waitForClockfaces() {
-  await Promise.all([persistenceReady, ...clockfaces.map(({ instance }) => instance.ready)]);
+  await Promise.all([bundledPersistenceReady, communityClockfacesReady]);
+  await Promise.all(clockfaces.map(({ instance }) => instance.ready));
   await Promise.all(clockfaces.map(({ instance }) => instance.waitForPersistence()));
+}
+
+async function refreshInstalledCommunityClockfaces() {
+  const bundledIds = new Set(bundledClockfaces.map((clockface) => clockface.id));
+  const installedClockfaces = await getInstalledCommunityClockfaces();
+  const communityEntries = await Promise.all(
+    installedClockfaces
+      .filter((clockface) => !bundledIds.has(clockface.id))
+      .map(async (clockface): Promise<ClockfaceEntry | undefined> => {
+        try {
+          const stats = await stat(clockface.modulePath);
+          const moduleUrl = `${pathToFileURL(clockface.modulePath).href}?v=${stats.mtimeMs}`;
+          const module = (await import(/* @vite-ignore */ moduleUrl)) as ClockfaceModule;
+
+          await module.default.attachPersistence(clockface.id);
+
+          return {
+            id: clockface.id,
+            name: clockface.name,
+            description: clockface.description,
+            picture: clockface.pictureUrl,
+            instance: module.default,
+            source: 'community'
+          };
+        } catch (error) {
+          console.error(`Community clockface "${clockface.id}" load failed:`, error);
+          return undefined;
+        }
+      })
+  );
+
+  clockfaces = [
+    ...bundledClockfaces,
+    ...communityEntries.filter((entry): entry is ClockfaceEntry => Boolean(entry))
+  ].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 async function startActiveClockface(id: string) {
@@ -646,11 +728,13 @@ function getNextRenderDelay(runner: ClockfaceRunner, clockface: Clockface) {
 }
 
 function getFrameBufferSize(clockface: Clockface) {
-  return hasRuntimeInputs(clockface) ? 1 : CLOCKFACE_FRAME_BUFFER_SIZE;
-}
+  const frameQueueSize = (clockface as ClockfaceFrameQueueProvider).frameQueueSize;
 
-function hasRuntimeInputs(clockface: Clockface) {
-  return clockface.inputRows.some((row) => row.some((input) => input.isSetting !== true));
+  if (frameQueueSize === undefined || !Number.isFinite(frameQueueSize)) {
+    return CLOCKFACE_FRAME_BUFFER_SIZE;
+  }
+
+  return Math.max(1, Math.round(frameQueueSize));
 }
 
 function delay(ms: number) {
@@ -866,18 +950,20 @@ function setFlatPixel(
 }
 
 async function getDisplayBuffer(clockface: Clockface) {
+  const frame = (clockface as Clockface & ClockfaceFrameProvider).getFrame?.() ?? {
+    size: clockface.resolution,
+    buffer: clockface.flatBuffer
+  };
+
   if (!isNotificationActive()) {
-    return {
-      size: clockface.resolution,
-      buffer: clockface.flatBuffer
-    };
+    return frame;
   }
 
   const size = PIXOO_NATIVE_SIZE;
   const buffer =
-    clockface.resolution === size
-      ? clockface.flatBuffer
-      : scaleFlatBuffer(clockface.flatBuffer, clockface.resolution, size);
+    frame.size === size
+      ? frame.buffer
+      : scaleFlatBuffer(frame.buffer, frame.size, size);
 
   return {
     size,

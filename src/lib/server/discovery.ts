@@ -1,14 +1,11 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
 import packageJson from '../../../package.json';
 import { getRuntimeConfig } from './config';
+import { getDataPath } from './dataDir';
 
-const INSTANCE_FILE = join(
-  env.PIXOOPAL_DATA_DIR || (existsSync('/data') ? '/data' : process.cwd()),
-  '.pixoopal-instance.json'
-);
+const INSTANCE_FILE = getDataPath('.pixoopal-instance.json');
 
 const API_VERSION = 1;
 const ZEROCONF_TYPE = '_pixoopal._tcp.local.';

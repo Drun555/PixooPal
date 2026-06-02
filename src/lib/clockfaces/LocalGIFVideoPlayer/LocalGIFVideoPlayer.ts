@@ -1,81 +1,77 @@
-import { Clockface, type ClockfaceContext } from '$lib/Clockface';
 import {
-  createMediaAnimation,
-  decodeMediaFile,
+  defineClockface,
+  data,
+  input,
+  type ClockfaceFileInputValue,
+  type MediaType
+} from '@pixoopal/clockface';
+import {
   DEFAULT_GIF_PLAYBACK_SPEED,
-  drawMediaAnimationFrame,
-  isMediaFileInput,
   MAX_GIF_PLAYBACK_SPEED,
   MIN_GIF_PLAYBACK_SPEED,
-  normalizeGifPlaybackSpeed,
-  type MediaAnimation
-} from '../shared/mediaAnimation';
+  normalizeGifPlaybackSpeed
+} from '@pixoopal/clockface/media';
 
-const RESOLUTION = 64;
+let media: ClockfaceFileInputValue | undefined;
+let mediaType: MediaType = 'gif';
 
-let animation: MediaAnimation | undefined;
-
-const gifPlayer = new Clockface({
-  resolution: RESOLUTION,
+export default defineClockface({
+  resolution: 64,
+  frameQueueSize: 30,
   data: {
-    fileName: '',
-    playbackSpeed: DEFAULT_GIF_PLAYBACK_SPEED.toString(),
-    status: 'Загрузите GIF или видео'
+    fileName: data.string(''),
+    playbackSpeed: data.number(DEFAULT_GIF_PLAYBACK_SPEED),
+    status: data.string('Upload GIF / Video / Picture')
   },
   inputs: [
-    {
-      type: 'input-num',
-      id: 'playbackSpeed',
-      friendlyName: 'Скорость',
+    input.number('playbackSpeed', 'Speed', {
       min: MIN_GIF_PLAYBACK_SPEED,
       max: MAX_GIF_PLAYBACK_SPEED,
       step: 0.1,
-      onSubmit: (value, context) => {
+      onSubmit(value, context) {
         context.data.playbackSpeed = normalizeGifPlaybackSpeed(String(value)).toString();
-        animation?.reset();
-        renderGif(context);
       }
-    },
-    {
-      type: 'input-file',
-      id: 'media',
-      friendlyName: 'GIF / Video',
+    }),
+    input.file('media', 'GIF / Video', {
       accept: 'image/gif,video/*,.gif,.mp4,.mov,.webm,.mkv',
-      onSubmit: async (value, context) => {
-        if (!isMediaFileInput(value)) {
+      isSetting: false,
+      onSubmit(value, context) {
+        if (!isFileInput(value)) {
           return;
         }
 
-        context.data.status = 'Декодирую';
-        animation = createMediaAnimation(
-          await decodeMediaFile(value, {
-            resolution: context.resolution
-          })
-        );
+        media = value;
+        mediaType = getMediaType(value);
         context.data.fileName = value.name;
-        context.data.status = `${animation.frames.length} кадр.`;
-        renderGif(context);
+        context.data.status = 'Готово';
       }
-    }
+    })
   ],
-  getUpdateIntervalMs: () => (animation && animation.frames.length > 1 ? 80 : 0),
-  init: clear,
-  main: renderGif
+  getInterval: () => (media ? 80 : 0),
+  render: (context) => {
+    context.canvas.clear();
+
+    if (!media) {
+      return;
+    }
+
+    context.canvas.media(media, mediaType);
+  }
 });
 
-export default gifPlayer;
-
-function renderGif(context: ClockfaceContext) {
-  if (!animation) {
-    clear(context);
-    return;
-  }
-
-  drawMediaAnimationFrame(context, animation, context.data.playbackSpeed);
+function isFileInput(value: unknown): value is ClockfaceFileInputValue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'bytes' in value &&
+    value.bytes instanceof Uint8Array
+  );
 }
 
-function clear(context: ClockfaceContext) {
-  for (let index = 0; index < context.buffer.length; index += 1) {
-    context.buffer[index] = [0, 0, 0];
+function getMediaType(file: ClockfaceFileInputValue): MediaType {
+  if (file.type.startsWith('video/')) {
+    return 'video';
   }
+
+  return 'gif';
 }

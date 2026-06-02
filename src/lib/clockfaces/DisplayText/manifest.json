@@ -1,6 +1,7 @@
 {
   "entry": "./DisplayText.ts",
   "name": "Display Text",
-  "description": "Centered bitmap text with configurable foreground and background colors.",
-  "picture": "./picture.png"
+  "description": "Very basic bitmap text with configurable foreground and background colors.",
+  "picture": "./picture.png",
+  "author": "Drun555"
 }

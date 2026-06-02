@@ -1,6 +1,0 @@
-{
-  "entry": "./Snake.ts",
-  "name": "Snake",
-  "description": "A playable snake game controlled from the PixooPal UI.",
-  "picture": "./picture.png"
-}

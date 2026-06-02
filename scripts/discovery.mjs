@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import Bonjour from 'bonjour-service';
@@ -79,14 +79,16 @@ function getInstanceState() {
 }
 
 function writeInstanceState(file, state) {
+  mkdirSync(getDataDir(), { recursive: true });
   writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
 }
 
 function getInstanceFile() {
-  return join(
-    process.env.PIXOOPAL_DATA_DIR || (existsSync('/data') ? '/data' : process.cwd()),
-    '.pixoopal-instance.json'
-  );
+  return join(getDataDir(), '.pixoopal-instance.json');
+}
+
+function getDataDir() {
+  return join(process.cwd(), 'data');
 }
 
 function getInstanceName(storedName) {
