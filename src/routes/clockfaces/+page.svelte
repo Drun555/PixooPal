@@ -1,6 +1,7 @@
 <script lang="ts">
   import { AlertTriangle, Download, RefreshCw, Trash2, X } from '@lucide/svelte';
   import { onMount } from 'svelte';
+  import { apiUrl } from '$lib/client/urls';
 
   type CommunityClockface = {
     id: string;
@@ -45,7 +46,7 @@
     message = '';
 
     try {
-      const response = await fetch('/api/v1/community-clockfaces', {
+      const response = await fetch(apiUrl('/api/v1/community-clockfaces'), {
         cache: 'no-store'
       });
       const body = (await response.json()) as CommunityClockfacesPayload;
@@ -67,7 +68,7 @@
     message = '';
 
     try {
-      const response = await fetch(`/api/v1/community-clockfaces/${encodeURIComponent(clockface.id)}`, {
+      const response = await fetch(apiUrl(`/api/v1/community-clockfaces/${encodeURIComponent(clockface.id)}`), {
         cache: 'no-store'
       });
       const body = (await response.json()) as CommunityClockfaceDetailPayload;
@@ -89,7 +90,7 @@
     message = '';
 
     try {
-      const response = await fetch('/api/v1/community-clockfaces', {
+      const response = await fetch(apiUrl('/api/v1/community-clockfaces'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json'
@@ -124,7 +125,7 @@
     message = '';
 
     try {
-      const response = await fetch(`/api/v1/community-clockfaces/${encodeURIComponent(clockface.id)}`, {
+      const response = await fetch(apiUrl(`/api/v1/community-clockfaces/${encodeURIComponent(clockface.id)}`), {
         method: 'DELETE'
       });
       const body = (await response.json()) as CommunityClockfacesPayload;
@@ -413,7 +414,6 @@
     color: #76dcca;
   }
 
-  .catalog-head button,
   .clockface-card button,
   .install-button {
     display: inline-flex;
@@ -428,11 +428,6 @@
     font-weight: 850;
   }
 
-  .catalog-head button {
-    padding: 0 14px;
-  }
-
-  .catalog-head button:disabled,
   .clockface-card button:disabled,
   .install-button:disabled {
     cursor: progress;
@@ -737,10 +732,6 @@
     .catalog-head {
       display: grid;
       align-items: start;
-    }
-
-    .catalog-head button {
-      width: 100%;
     }
 
     .modal-backdrop {

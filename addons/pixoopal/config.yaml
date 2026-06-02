@@ -27,6 +27,7 @@ schema:
   pixoo_device_address: str?
 environment:
   PORT: "5173"
+  BODY_SIZE_LIMIT: "25M"
 discovery:
   - pixoopal
 watchdog: http://[HOST]:[PORT:5173]/api/v1/status

@@ -20,7 +20,8 @@ ARG BUILD_VERSION=0.0.1
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=5173
+    PORT=5173 \
+    BODY_SIZE_LIMIT=25M
 
 LABEL io.hass.version="${BUILD_VERSION}" \
       io.hass.type="app" \

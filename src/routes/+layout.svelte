@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { appPath, appRoutePath } from '$lib/client/urls';
 
   const tabs = [
     { href: '/', label: 'Home' },
@@ -7,14 +8,15 @@
   ];
 
   function isActive(href: string) {
-    return href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
+    const pathname = appRoutePath(page.url.pathname);
+    return href === '/' ? pathname === '/' : pathname.startsWith(href);
   }
 </script>
 
 <div class="app-shell">
   <nav class="tabs" aria-label="PixooPal navigation">
     {#each tabs as tab}
-      <a class:active={isActive(tab.href)} href={tab.href}>{tab.label}</a>
+      <a class:active={isActive(tab.href)} href={appPath(tab.href)}>{tab.label}</a>
     {/each}
   </nav>
 

@@ -9,6 +9,7 @@ services:
       PIXOO_DEVICE_ADDRESS: ${PIXOO_DEVICE_ADDRESS:-192.168.6.3}
       PIXOOPAL_INSTANCE_NAME: ${PIXOOPAL_INSTANCE_NAME:-PixooPal}
       PORT: "5173"
+      BODY_SIZE_LIMIT: "25M"
     volumes:
       - ./pixoopal-data:/data
     logging:

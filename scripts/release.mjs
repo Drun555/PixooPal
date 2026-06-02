@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const version = normalizeVersion(process.argv[2] ?? '');
+const tagName = `v${version}`;
 
 if (!version) {
   console.error('Usage: npm run release -- <version>');
@@ -27,11 +28,17 @@ updateHomeAssistantConfig(version);
 execFileSync('git', ['add', 'package.json', 'package-lock.json', 'addons/pixoopal/config.yaml'], {
   stdio: 'inherit'
 });
-execFileSync('git', ['commit', '-m', `Release v${version}`], { stdio: 'inherit' });
-execFileSync('git', ['tag', `v${version}`], { stdio: 'inherit' });
 
-console.log(`Release v${version} prepared.`);
-console.log('Push it with: git push --follow-tags');
+if (hasStagedChanges()) {
+  execFileSync('git', ['commit', '-m', `Release ${tagName}`], { stdio: 'inherit' });
+} else {
+  console.log(`Release ${tagName} already matches tracked files; skipping commit.`);
+}
+
+ensureTag(tagName);
+
+console.log(`Release ${tagName} prepared.`);
+console.log(`Push it with: git push origin main ${tagName}`);
 
 function normalizeVersion(value) {
   const version = value.trim().replace(/^v/i, '');
@@ -50,6 +57,49 @@ function ensureCleanWorkingTree() {
     console.error('Working tree must be clean before preparing a release.');
     console.error(status);
     process.exit(1);
+  }
+}
+
+function hasStagedChanges() {
+  try {
+    execFileSync('git', ['diff', '--cached', '--quiet'], { stdio: 'ignore' });
+    return false;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'status' in error && error.status === 1) {
+      return true;
+    }
+
+    throw error;
+  }
+}
+
+function ensureTag(name) {
+  const head = getGitOutput(['rev-parse', 'HEAD']);
+  const existing = getGitOutput(['rev-parse', '--verify', `${name}^{}`], { allowFailure: true });
+
+  if (!existing) {
+    execFileSync('git', ['tag', name], { stdio: 'inherit' });
+    return;
+  }
+
+  if (existing === head) {
+    console.log(`Tag ${name} already exists on HEAD; skipping tag creation.`);
+    return;
+  }
+
+  console.log(`Tag ${name} already exists on ${existing}; skipping tag creation.`);
+  console.log(`If this is intentional, push the existing tag with: git push origin ${name}`);
+}
+
+function getGitOutput(args, { allowFailure = false } = {}) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch (error) {
+    if (allowFailure) {
+      return '';
+    }
+
+    throw error;
   }
 }
 

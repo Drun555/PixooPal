@@ -14,6 +14,7 @@
   } from '@lucide/svelte';
   import ClockfaceInputs from '$lib/components/ClockfaceInputs.svelte';
   import ClockfacePreview from '$lib/components/ClockfacePreview.svelte';
+  import { apiUrl, apiWebSocketUrl } from '$lib/client/urls';
 
   type PixooSettings = {
     Brightness?: number;
@@ -260,25 +261,6 @@
         buttonState = rest;
       }, 1400);
     }
-  }
-
-  function apiUrl(path: string) {
-    if (typeof window === 'undefined') {
-      return path;
-    }
-
-    const normalizedPath = path.replace(/^\//, '');
-    const basePath = window.location.pathname.endsWith('/')
-      ? window.location.pathname
-      : `${window.location.pathname}/`;
-
-    return new URL(normalizedPath, `${window.location.origin}${basePath}`).toString();
-  }
-
-  function apiWebSocketUrl(path: string) {
-    const url = new URL(apiUrl(path));
-    url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return url.toString();
   }
 
   function actionLabel(key: string, label: string) {
