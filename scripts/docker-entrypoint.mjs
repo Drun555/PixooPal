@@ -13,7 +13,10 @@ import { fileURLToPath } from 'node:url';
 
 const OPTIONS_PATH = '/data/options.json';
 const APP_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const APP_NODE_MODULES_PATH = join(APP_ROOT, 'node_modules');
 const PROJECT_DATA_PATH = join(APP_ROOT, 'data');
+const COMMUNITY_CLOCKFACES_DATA_PATH = '/data/CommunityClockfaces';
+const COMMUNITY_CLOCKFACES_NODE_MODULES_PATH = join(COMMUNITY_CLOCKFACES_DATA_PATH, 'node_modules');
 
 process.chdir(APP_ROOT);
 
@@ -22,6 +25,7 @@ process.env.PORT ||= '5173';
 
 logStartupEnvironment();
 linkProjectDataToDockerVolume();
+linkCommunityClockfaceNodeModules();
 
 if (existsSync(OPTIONS_PATH)) {
   logOptionsFile(OPTIONS_PATH);
@@ -94,6 +98,35 @@ function linkProjectDataToDockerVolume() {
 
   symlinkSync('/data', PROJECT_DATA_PATH, 'dir');
   console.log(`[PixooPal] Linked ${PROJECT_DATA_PATH} to persistent /data volume.`);
+}
+
+function linkCommunityClockfaceNodeModules() {
+  mkdirSync(COMMUNITY_CLOCKFACES_DATA_PATH, { recursive: true });
+
+  if (!existsSync(APP_NODE_MODULES_PATH)) {
+    console.warn(
+      `[PixooPal] ${APP_NODE_MODULES_PATH} was not found. Community clockface imports may fail.`
+    );
+    return;
+  }
+
+  if (existsSync(COMMUNITY_CLOCKFACES_NODE_MODULES_PATH)) {
+    const stats = lstatSync(COMMUNITY_CLOCKFACES_NODE_MODULES_PATH);
+
+    if (stats.isSymbolicLink()) {
+      rmSync(COMMUNITY_CLOCKFACES_NODE_MODULES_PATH);
+    } else {
+      console.warn(
+        `[PixooPal] ${COMMUNITY_CLOCKFACES_NODE_MODULES_PATH} exists and is not a symlink; leaving it untouched. Community clockface imports may fail.`
+      );
+      return;
+    }
+  }
+
+  symlinkSync(APP_NODE_MODULES_PATH, COMMUNITY_CLOCKFACES_NODE_MODULES_PATH, 'dir');
+  console.log(
+    `[PixooPal] Linked ${COMMUNITY_CLOCKFACES_NODE_MODULES_PATH} to ${APP_NODE_MODULES_PATH} for community clockface imports.`
+  );
 }
 
 function logOptionsFile(path) {
