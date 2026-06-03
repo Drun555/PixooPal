@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { codeToHtml } from 'shiki';
-import { getDataPath } from './dataDir';
+import { getDataDir, getDataPath } from './dataDir';
 
 export type CommunityClockfaceCatalogItem = {
   id: string;
@@ -15,11 +15,23 @@ export type CommunityClockfaceCatalogItem = {
   picture?: string;
   pictureUrl?: string;
   source?: string;
+  sourceFiles?: string[];
   installed: boolean;
   outdated: boolean;
 };
 
+export type CommunityClockfaceSourceFile = {
+  path: string;
+  name: string;
+  kind: 'code' | 'image' | 'asset';
+  url: string;
+  language?: string;
+  sourceCode?: string;
+  highlightedSource?: string;
+};
+
 export type CommunityClockfaceDetail = CommunityClockfaceCatalogItem & {
+  files: CommunityClockfaceSourceFile[];
   sourceCode: string;
   highlightedSource: string;
 };
@@ -50,6 +62,7 @@ type CommunityManifestClockface = {
   module?: unknown;
   picture?: unknown;
   source?: unknown;
+  sourceFiles?: unknown;
 };
 
 type InstalledManifest = {
@@ -71,7 +84,6 @@ const COMMUNITY_MANIFEST_URL =
   'https://raw.githubusercontent.com/Drun555/PixooPal-Community/refs/heads/master/manifest.json';
 const COMMUNITY_RAW_BASE_URL =
   'https://raw.githubusercontent.com/Drun555/PixooPal-Community/refs/heads/master/';
-const COMMUNITY_CLOCKFACES_DIR = getDataPath('CommunityClockfaces');
 
 export async function getCommunityClockfacesCatalog() {
   const [manifest, installedClockfaces] = await Promise.all([
@@ -96,20 +108,14 @@ export async function getCommunityClockfaceDetail(id: string): Promise<Community
     throw new Error(`Community clockface "${id}" was not found.`);
   }
 
-  if (!clockface.source) {
-    throw new Error(`Community clockface "${id}" does not provide source information.`);
-  }
-
-  const sourceCode = await downloadText(await getCommunityClockfaceSourceEntryUrl(clockface.source));
-  const highlightedSource = await codeToHtml(sourceCode, {
-    lang: 'ts',
-    theme: 'github-dark'
-  });
+  const files = await getCommunityClockfaceSourceFiles(clockface);
+  const primaryCodeFile = files.find((file) => file.kind === 'code') ?? files[0];
 
   return {
     ...clockface,
-    sourceCode,
-    highlightedSource
+    files,
+    sourceCode: primaryCodeFile?.sourceCode ?? '',
+    highlightedSource: primaryCodeFile?.highlightedSource ?? ''
   };
 }
 
@@ -173,11 +179,13 @@ export async function deleteCommunityClockface(id: string) {
 }
 
 export async function getInstalledCommunityClockfaces(): Promise<InstalledCommunityClockface[]> {
-  if (!existsSync(COMMUNITY_CLOCKFACES_DIR)) {
+  const communityClockfacesDir = getCommunityClockfacesDir();
+
+  if (!existsSync(communityClockfacesDir)) {
     return [];
   }
 
-  const directories = await readdir(COMMUNITY_CLOCKFACES_DIR, { withFileTypes: true });
+  const directories = await readdir(communityClockfacesDir, { withFileTypes: true });
   const clockfaces = await Promise.all(
     directories
       .filter((entry) => entry.isDirectory())
@@ -283,6 +291,7 @@ function parseCommunityClockface(value: unknown): CommunityClockfaceCatalogItem 
     module,
     picture: normalizeRelativePath(stringValue(clockface.picture)),
     source: normalizeRelativePath(stringValue(clockface.source)),
+    sourceFiles: normalizeSourceFiles(clockface.sourceFiles, id),
     installed: false,
     outdated: false
   };
@@ -308,15 +317,69 @@ async function downloadText(url: string) {
   return response.text();
 }
 
-async function getCommunityClockfaceSourceEntryUrl(source: string) {
-  const sourceManifest = JSON.parse(await downloadText(resolveCommunityUrl(source))) as SourceManifest;
+async function getCommunityClockfaceSourceFiles(
+  clockface: CommunityClockfaceCatalogItem
+): Promise<CommunityClockfaceSourceFile[]> {
+  const paths = clockface.sourceFiles?.length
+    ? clockface.sourceFiles
+    : await getFallbackSourceFiles(clockface);
+
+  return Promise.all(paths.map((path) => getCommunityClockfaceSourceFile(path)));
+}
+
+async function getFallbackSourceFiles(clockface: CommunityClockfaceCatalogItem) {
+  if (!clockface.source) {
+    throw new Error(`Community clockface "${clockface.id}" does not provide source information.`);
+  }
+
+  const sourceManifest = JSON.parse(await downloadText(resolveCommunityUrl(clockface.source))) as SourceManifest;
   const entry = normalizeRelativePath(stringValue(sourceManifest.entry));
 
   if (!entry) {
-    throw new Error(`Community source manifest "${source}" does not provide a valid entry.`);
+    throw new Error(`Community source manifest "${clockface.source}" does not provide a valid entry.`);
   }
 
-  return resolveCommunityUrl(join(dirname(source), entry).replaceAll('\\', '/'));
+  return [join(dirname(clockface.source), entry).replaceAll('\\', '/')];
+}
+
+async function getCommunityClockfaceSourceFile(path: string): Promise<CommunityClockfaceSourceFile> {
+  const extension = extname(path).toLowerCase();
+  const url = resolveCommunityUrl(path);
+  const base = {
+    path,
+    name: basename(path),
+    url
+  };
+
+  if (isSourceImageExtension(extension)) {
+    return {
+      ...base,
+      kind: 'image'
+    };
+  }
+
+  const language = getSourceLanguage(extension);
+
+  if (!language) {
+    return {
+      ...base,
+      kind: 'asset'
+    };
+  }
+
+  const sourceCode = await downloadText(url);
+  const highlightedSource = await codeToHtml(sourceCode, {
+    lang: language,
+    theme: 'github-dark'
+  });
+
+  return {
+    ...base,
+    kind: 'code',
+    language,
+    sourceCode,
+    highlightedSource
+  };
 }
 
 function resolveCommunityUrl(path: string) {
@@ -334,7 +397,18 @@ function resolveCommunityFile(directory: string, path: string) {
 }
 
 function getCommunityClockfaceDirectory(id: string) {
-  return join(COMMUNITY_CLOCKFACES_DIR, normalizeClockfaceId(id));
+  return join(getCommunityClockfacesDir(), normalizeClockfaceId(id));
+}
+
+function getCommunityClockfacesDir() {
+  return getDataPath('CommunityClockfaces');
+}
+
+export function getCommunityClockfacesDebugInfo() {
+  return {
+    dataDir: getDataDir(),
+    communityClockfacesDir: getCommunityClockfacesDir()
+  };
 }
 
 function isCommunityClockfaceOutdated(
@@ -372,7 +446,53 @@ function normalizeRelativePath(path: string | undefined) {
     return undefined;
   }
 
-  return normalized;
+  return normalized.replaceAll('\\', '/');
+}
+
+function normalizeSourceFiles(value: unknown, id: string) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const sourcePrefix = `src/${id}/`;
+  const files = value
+    .map((item) => normalizeRelativePath(stringValue(item)))
+    .filter((item): item is string => Boolean(item))
+    .filter((item) => item.startsWith(sourcePrefix));
+
+  return files.length > 0 ? [...new Set(files)] : undefined;
+}
+
+function getSourceLanguage(extension: string) {
+  if (extension === '.ts' || extension === '.tsx') {
+    return 'ts';
+  }
+
+  if (extension === '.js' || extension === '.jsx' || extension === '.mjs') {
+    return 'js';
+  }
+
+  if (extension === '.json') {
+    return 'json';
+  }
+
+  if (extension === '.css') {
+    return 'css';
+  }
+
+  if (extension === '.html' || extension === '.svg') {
+    return 'html';
+  }
+
+  if (extension === '.md') {
+    return 'md';
+  }
+
+  return undefined;
+}
+
+function isSourceImageExtension(extension: string) {
+  return ['.gif', '.jpg', '.jpeg', '.png', '.webp'].includes(extension);
 }
 
 function normalizePictureExtension(extension: string) {

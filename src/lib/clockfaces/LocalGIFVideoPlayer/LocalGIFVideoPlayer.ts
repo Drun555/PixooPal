@@ -17,7 +17,7 @@ let mediaType: MediaType = 'gif';
 
 export default defineClockface({
   resolution: 64,
-  frameQueueSize: 30,
+  frameQueueSize: 5,
   data: {
     fileName: data.string(''),
     playbackSpeed: data.number(DEFAULT_GIF_PLAYBACK_SPEED),

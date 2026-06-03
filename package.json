@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@lucide/svelte": "latest",
-    "@pixoopal/clockface": "^0.1.5",
+    "@pixoopal/clockface": "^0.1.6",
     "@types/ws": "^8.18.1",
     "bonjour-service": "^1.4.0",
     "gifuct-js": "^2.1.2",

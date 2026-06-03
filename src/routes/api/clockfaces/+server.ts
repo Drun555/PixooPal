@@ -22,8 +22,17 @@ export const GET: RequestHandler = async () => {
   }
 };
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, url }) => {
   try {
+    if (isRawFileInput(request, url)) {
+      const file = await parseRawFileInput(request, url);
+
+      return json({
+        ok: true,
+        ...(await submitClockfaceInput(file.inputId, file.value))
+      });
+    }
+
     if (request.headers.get('content-type')?.includes('multipart/form-data')) {
       const form = await request.formData();
       const action = String(form.get('action') ?? '');
@@ -88,6 +97,31 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 };
 
+async function parseRawFileInput(request: Request, url: URL) {
+  const headers = request.headers;
+  const params = url.searchParams;
+
+  return {
+    inputId: decodeHeader(headers.get('x-pixoopal-input-id')) || params.get('inputId') || '',
+    value: {
+      name: decodeHeader(headers.get('x-pixoopal-file-name')) || params.get('fileName') || 'upload',
+      type: decodeHeader(headers.get('x-pixoopal-file-type')) || params.get('fileType') || '',
+      size:
+        parseHeaderNumber(headers.get('x-pixoopal-file-size')) ??
+        parseHeaderNumber(params.get('fileSize')) ??
+        0,
+      bytes: new Uint8Array(await request.arrayBuffer())
+    }
+  };
+}
+
+function isRawFileInput(request: Request, url: URL) {
+  return (
+    request.headers.get('content-type')?.includes('application/octet-stream') === true &&
+    (request.headers.has('x-pixoopal-input-id') || url.searchParams.has('inputId'))
+  );
+}
+
 function parseJsonFileInput(payload: unknown) {
   if (!isRecord(payload) || !isRecord(payload.file)) {
     return undefined;
@@ -110,4 +144,25 @@ function parseJsonFileInput(payload: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function decodeHeader(value: string | null) {
+  if (!value) {
+    return '';
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseHeaderNumber(value: string | null) {
+  if (!value) {
+    return undefined;
+  }
+
+  const number = Number.parseInt(value, 10);
+  return Number.isFinite(number) ? number : undefined;
 }

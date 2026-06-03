@@ -1,8 +1,8 @@
 import { defineClockface, data, input } from '@pixoopal/clockface';
 
 const DEFAULT_DATA = {
-  text: 'PixooPal',
-  textColor: '#ffffff',
+  text: 'love',
+  textColor: '#ff00d0',
   backgroundColor: '#000000'
 };
 

@@ -11,11 +11,23 @@
     createdAt?: string;
     updatedAt?: string;
     pictureUrl?: string;
+    sourceFiles?: string[];
     installed: boolean;
     outdated: boolean;
   };
 
+  type CommunityClockfaceSourceFile = {
+    path: string;
+    name: string;
+    kind: 'code' | 'image' | 'asset';
+    url: string;
+    language?: string;
+    sourceCode?: string;
+    highlightedSource?: string;
+  };
+
   type CommunityClockfaceDetail = CommunityClockface & {
+    files: CommunityClockfaceSourceFile[];
     sourceCode: string;
     highlightedSource: string;
   };
@@ -38,8 +50,13 @@
   let actionState: Record<string, ActionState> = {};
   let detailState: Record<string, ActionState> = {};
   let selectedClockface: CommunityClockfaceDetail | undefined;
+  let selectedSourcePath = '';
   let loading = true;
   let message = '';
+
+  $: selectedSourceFile =
+    selectedClockface?.files.find((file) => file.path === selectedSourcePath) ??
+    selectedClockface?.files[0];
 
   async function refreshCatalog() {
     loading = true;
@@ -78,6 +95,7 @@
       }
 
       selectedClockface = body.clockface;
+      selectedSourcePath = getInitialSourcePath(body.clockface);
       detailState = { ...detailState, [clockface.id]: 'done' };
     } catch (error) {
       message = error instanceof Error ? error.message : 'Clockface details were not loaded.';
@@ -192,6 +210,7 @@
 
   function closeReview() {
     selectedClockface = undefined;
+    selectedSourcePath = '';
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
@@ -203,6 +222,23 @@
 
   function stopReviewEvent(event: Event) {
     event.stopPropagation();
+  }
+
+  function getInitialSourcePath(clockface: CommunityClockfaceDetail) {
+    return (
+      clockface.files.find((file) => file.path.endsWith('.ts'))?.path ??
+      clockface.files.find((file) => file.kind === 'code')?.path ??
+      clockface.files[0]?.path ??
+      ''
+    );
+  }
+
+  function selectSourceFile(file: CommunityClockfaceSourceFile) {
+    selectedSourcePath = file.path;
+  }
+
+  function fileLabel(file: CommunityClockfaceSourceFile) {
+    return file.path.replace(/^\.?\/*src\/[^/]+\//, '');
   }
 
   onMount(() => {
@@ -302,8 +338,38 @@
           </button>
         </div>
 
-        <div class="source-frame">
-          {@html selectedClockface.highlightedSource}
+        <div class="file-tabs" aria-label="Clockface source files">
+          {#each selectedClockface.files as file}
+            <button
+              class:active={selectedSourceFile?.path === file.path}
+              type="button"
+              title={file.path}
+              onclick={() => selectSourceFile(file)}
+            >
+              {fileLabel(file)}
+            </button>
+          {/each}
+        </div>
+
+        <div class="source-frame" class:asset-frame={selectedSourceFile?.kind !== 'code'}>
+          {#if selectedSourceFile?.kind === 'code' && selectedSourceFile.highlightedSource}
+            {@html selectedSourceFile.highlightedSource}
+          {:else if selectedSourceFile?.kind === 'image'}
+            <div class="asset-preview">
+              <img src={selectedSourceFile.url} alt={selectedSourceFile.name} />
+              <a href={selectedSourceFile.url} target="_blank" rel="noreferrer">Open raw file</a>
+            </div>
+          {:else if selectedSourceFile}
+            <div class="asset-preview">
+              <strong>{selectedSourceFile.name}</strong>
+              <span>This file is not previewed as source code.</span>
+              <a href={selectedSourceFile.url} target="_blank" rel="noreferrer">Open raw file</a>
+            </div>
+          {:else}
+            <div class="asset-preview">
+              <span>No source files were provided.</span>
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -595,7 +661,7 @@
     display: grid;
     min-width: 0;
     min-height: 0;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 12px;
     padding: 18px;
   }
@@ -646,6 +712,56 @@
     background: #0d1117;
   }
 
+  .file-tabs {
+    display: flex;
+    min-width: 0;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-color: #6f7b8a #151b24;
+    scrollbar-width: thin;
+  }
+
+  .file-tabs button {
+    display: inline-flex;
+    min-height: 34px;
+    max-width: 220px;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 0 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: #aeb9c8;
+    background: rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 850;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-tabs button.active {
+    color: #07110f;
+    border-color: transparent;
+    background: #76dcca;
+  }
+
+  .file-tabs::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  .file-tabs::-webkit-scrollbar-track {
+    background: #151b24;
+    border-radius: 999px;
+  }
+
+  .file-tabs::-webkit-scrollbar-thumb {
+    border: 2px solid #151b24;
+    border-radius: 999px;
+    background: #6f7b8a;
+  }
+
   .source-frame :global(pre) {
     box-sizing: border-box;
     width: 100%;
@@ -682,6 +798,39 @@
   .source-frame :global(pre::-webkit-scrollbar-thumb:hover),
   .review-modal::-webkit-scrollbar-thumb:hover {
     background: #93a0af;
+  }
+
+  .source-frame.asset-frame {
+    display: grid;
+    place-items: center;
+    padding: 18px;
+  }
+
+  .asset-preview {
+    display: grid;
+    max-width: min(460px, 100%);
+    justify-items: center;
+    gap: 12px;
+    color: #d7e2ee;
+    text-align: center;
+    font-weight: 850;
+  }
+
+  .asset-preview img {
+    display: block;
+    max-width: 100%;
+    max-height: min(420px, 56vh);
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+
+  .asset-preview span {
+    color: #91a1b5;
+    font-size: 0.9rem;
+  }
+
+  .asset-preview a {
+    color: #76dcca;
   }
 
   .review-side {

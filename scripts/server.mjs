@@ -7,19 +7,6 @@ import { registerSupervisorDiscovery } from './supervisor-discovery.mjs';
 const host = process.env.HOST ?? '0.0.0.0';
 const port = Number.parseInt(process.env.PORT ?? '5173', 10);
 const server = createServer((request, response) => {
-  const startedAt = Date.now();
-  const url = request.url ?? '';
-
-  response.on('finish', () => {
-    if (!shouldLogRequest(url)) {
-      return;
-    }
-
-    console.log(
-      `[PixooPal] HTTP ${request.method ?? 'GET'} ${url} -> ${response.statusCode} (${Date.now() - startedAt}ms)`
-    );
-  });
-
   handler(request, response);
 });
 
@@ -40,8 +27,4 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
       process.exit(0);
     });
   });
-}
-
-function shouldLogRequest(url) {
-  return url.startsWith('/api/') || url.includes('/api/');
 }

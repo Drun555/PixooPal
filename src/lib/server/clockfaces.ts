@@ -20,7 +20,7 @@ import {
 } from './pixoo';
 import { publishPixooPalEvent, publishPreviewFrame } from './previewStream';
 import { fileClockfacePersistenceStore } from './clockfacePersistence';
-import { getInstalledCommunityClockfaces } from './communityClockfaces';
+import { getCommunityClockfacesDebugInfo, getInstalledCommunityClockfaces } from './communityClockfaces';
 
 export type ClockfaceInputView = Omit<ClockfaceInput, 'onSubmit'>;
 export type ClockfaceInputRowView = ClockfaceInputView[];
@@ -479,6 +479,10 @@ async function waitForClockfaces() {
 async function refreshInstalledCommunityClockfaces() {
   const bundledIds = new Set(bundledClockfaces.map((clockface) => clockface.id));
   const installedClockfaces = await getInstalledCommunityClockfaces();
+  const debugInfo = getCommunityClockfacesDebugInfo();
+  console.log(
+    `[PixooPal] Community clockfaces scan: dataDir=${debugInfo.dataDir}, dir=${debugInfo.communityClockfacesDir}, installed=${installedClockfaces.length}`
+  );
   const communityEntries = await Promise.all(
     installedClockfaces
       .filter((clockface) => !bundledIds.has(clockface.id))
@@ -669,8 +673,9 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
       }
 
       await waitForRunnerPushSlot(runner);
+      const pushStartedAt = Date.now();
       await enqueueFramePush(runner, frame);
-      runner.nextPushAt = Date.now() + frame.updateIntervalMs;
+      runner.nextPushAt = pushStartedAt + frame.updateIntervalMs;
 
       if (isRunnerActive(runner)) {
         scheduleNextFrame(runner, getClockfaceEntry(runner.id).instance);
@@ -724,7 +729,7 @@ async function waitForRunnerPushSlot(runner: ClockfaceRunner) {
 }
 
 function getNextRenderDelay(runner: ClockfaceRunner, clockface: Clockface) {
-  return runner.pendingFrames.length > 0 ? 0 : getFrameInterval(clockface);
+  return runner.sending || runner.pendingFrames.length > 0 ? 0 : getFrameInterval(clockface);
 }
 
 function getFrameBufferSize(clockface: Clockface) {

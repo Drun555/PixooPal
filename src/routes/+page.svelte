@@ -520,33 +520,24 @@
   }
 
   async function submitClockfaceFileInput(id: string, file: File) {
-    return fetch(apiUrl('/api/v1/clockfaces/input'), {
+    const params = new URLSearchParams({
+      inputId: id,
+      fileName: file.name,
+      fileType: file.type || 'application/octet-stream',
+      fileSize: String(file.size)
+    });
+
+    return fetch(apiUrl(`/api/v1/clockfaces/input?${params.toString()}`), {
       method: 'POST',
       headers: {
-        'content-type': 'application/json'
+        'content-type': 'application/octet-stream',
+        'x-pixoopal-input-id': encodeURIComponent(id),
+        'x-pixoopal-file-name': encodeURIComponent(file.name),
+        'x-pixoopal-file-type': encodeURIComponent(file.type || 'application/octet-stream'),
+        'x-pixoopal-file-size': String(file.size)
       },
-      body: JSON.stringify({
-        inputId: id,
-        file: {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          bytesBase64: await fileToBase64(file)
-        }
-      })
+      body: file
     });
-  }
-
-  async function fileToBase64(file: File) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    let binary = '';
-    const chunkSize = 0x8000;
-
-    for (let index = 0; index < bytes.length; index += chunkSize) {
-      binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-    }
-
-    return btoa(binary);
   }
 
   async function submitNotification() {

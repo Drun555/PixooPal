@@ -8,9 +8,14 @@ import {
   statSync,
   symlinkSync
 } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const OPTIONS_PATH = '/data/options.json';
-const PROJECT_DATA_PATH = `${process.cwd()}/data`;
+const APP_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const PROJECT_DATA_PATH = join(APP_ROOT, 'data');
+
+process.chdir(APP_ROOT);
 
 process.env.HOST ??= '0.0.0.0';
 process.env.PORT ||= '5173';
@@ -65,6 +70,7 @@ function logStartupEnvironment() {
   console.log(
     `[PixooPal] Starting Docker entrypoint as uid=${typeof process.getuid === 'function' ? process.getuid() : 'unknown'}, gid=${typeof process.getgid === 'function' ? process.getgid() : 'unknown'}`
   );
+  console.log(`[PixooPal] App root: ${APP_ROOT}; cwd: ${process.cwd()}; project data: ${PROJECT_DATA_PATH}`);
   console.log(
     `[PixooPal] Runtime env presence: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS ? 'set' : 'empty'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS ? 'set' : 'empty'}`
   );
@@ -78,14 +84,12 @@ function linkProjectDataToDockerVolume() {
 
     if (stats.isSymbolicLink()) {
       rmSync(PROJECT_DATA_PATH);
-    }
-
-    if (!stats.isDirectory()) {
+    } else if (!stats.isDirectory()) {
       throw new Error(`[PixooPal] ${PROJECT_DATA_PATH} exists and is not a directory.`);
+    } else {
+      cpSync(PROJECT_DATA_PATH, '/data', { recursive: true });
+      rmSync(PROJECT_DATA_PATH, { recursive: true, force: true });
     }
-
-    cpSync(PROJECT_DATA_PATH, '/data', { recursive: true });
-    rmSync(PROJECT_DATA_PATH, { recursive: true, force: true });
   }
 
   symlinkSync('/data', PROJECT_DATA_PATH, 'dir');
