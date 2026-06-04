@@ -12,6 +12,7 @@ image: drun555/pixoopal
 hassio_api: true
 ingress: true
 ingress_port: 5173
+ingress_stream: true
 panel_icon: mdi:led-strip-variant
 panel_title: PixooPal
 ports:
