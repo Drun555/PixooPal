@@ -7,6 +7,13 @@ export type RGB = [number, number, number];
 type PixooCommand = Record<string, unknown> & { Command: string };
 type PixooPowerListener = (state: PixooPowerState) => void;
 type PixooRecoveryListener = (state: PixooRecoveryState) => void;
+export type PixooCommandSample = {
+  command: string;
+  durationMs: number;
+  ok: boolean;
+  error?: string;
+  startedAtMs: number;
+};
 
 export type PixooRecoveryState = {
   reachable: boolean;
@@ -43,6 +50,7 @@ const PIXOO_CUSTOM_CHANNEL_INDEX = 3;
 
 const reachabilityState = getPixooReachabilityState();
 const drawState = getPixooDrawState();
+let commandCollector: { startedAt: number; samples: PixooCommandSample[] } | undefined;
 
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) {
@@ -82,6 +90,7 @@ export async function sendPixooCommand(command: PixooCommand) {
     }
 
     markPixooReachability(true);
+    collectPixooCommand(command.Command, startedAt, true);
     debugLog('Pixoo command completed.', {
       command: command.Command,
       durationMs: Date.now() - startedAt
@@ -89,6 +98,7 @@ export async function sendPixooCommand(command: PixooCommand) {
     return body;
   } catch (error) {
     markPixooReachability(false);
+    collectPixooCommand(command.Command, startedAt, false, error);
     debugLog('Pixoo command failed.', {
       command: command.Command,
       durationMs: Date.now() - startedAt,
@@ -98,6 +108,23 @@ export async function sendPixooCommand(command: PixooCommand) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export function startPixooCommandCollection() {
+  if (commandCollector) {
+    throw new Error('Pixoo command collection is already running.');
+  }
+
+  commandCollector = {
+    startedAt: Date.now(),
+    samples: []
+  };
+
+  return () => {
+    const samples = commandCollector?.samples ?? [];
+    commandCollector = undefined;
+    return samples;
+  };
 }
 
 export async function getPixooSettings() {
@@ -261,6 +288,20 @@ function safeParseJson(text: string) {
   } catch {
     return text;
   }
+}
+
+function collectPixooCommand(command: string, startedAt: number, ok: boolean, error?: unknown) {
+  if (!commandCollector) {
+    return;
+  }
+
+  commandCollector.samples.push({
+    command,
+    durationMs: Date.now() - startedAt,
+    ok,
+    error: ok ? undefined : error instanceof Error ? error.message : String(error),
+    startedAtMs: startedAt - commandCollector.startedAt
+  });
 }
 
 function cachePixooSettings(settings: unknown) {

@@ -51,12 +51,62 @@
     runs: BenchmarkRun[];
   };
 
+  type ClockfaceBenchmarkResult = {
+    ok: boolean;
+    message?: string;
+    options: {
+      durationMs: number;
+    };
+    activeClockface: {
+      id: string;
+      name: string;
+      resolution: number;
+      updateIntervalMs: number;
+      frameQueueSize: number;
+    };
+    durationMs: number;
+    pixoo: {
+      host: string | null;
+      recoveryBefore: {
+        reachable: boolean;
+        drawCooldownRemainingMs: number;
+      };
+      recoveryAfter: {
+        reachable: boolean;
+        drawCooldownRemainingMs: number;
+      };
+    };
+    summary: {
+      renderMs: MetricSummary;
+      displayBufferMs: MetricSummary;
+      renderStartGapMs: MetricSummary;
+      queueWaitMs: MetricSummary;
+      pushDurationMs: MetricSummary;
+      pushStartGapMs: MetricSummary;
+      counts: {
+        renderedFrames: number;
+        pushedFrames: number;
+        scheduledFrames: number;
+        schedulerBlocks: Record<string, number>;
+        pixooCommands: number;
+        pixooCommandCounts: Record<
+          string,
+          { count: number; ok: number; error: number; durationMs: MetricSummary }
+        >;
+      };
+    };
+  };
+
   let frames = 30;
   let warmupFrames = 2;
   let intervalMs = 120;
   let busy = false;
   let errorMessage = '';
   let result: BenchmarkResult | null = null;
+  let clockfaceDurationMs = 20000;
+  let clockfaceBusy = false;
+  let clockfaceErrorMessage = '';
+  let clockfaceResult: ClockfaceBenchmarkResult | null = null;
 
   async function run() {
     busy = true;
@@ -98,7 +148,46 @@
 
   function reset() {
     result = null;
+    clockfaceResult = null;
     errorMessage = '';
+    clockfaceErrorMessage = '';
+  }
+
+  async function runClockfaceBenchmark() {
+    clockfaceBusy = true;
+    clockfaceErrorMessage = '';
+
+    try {
+      const response = await fetch(apiUrl('/api/v1/benchmark/clockface'), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          durationMs: clockfaceDurationMs
+        })
+      });
+      const body = (await response.json()) as ClockfaceBenchmarkResult;
+
+      if (!response.ok || body.ok === false) {
+        throw new Error(body.message || 'Clockface benchmark failed');
+      }
+
+      clockfaceResult = body;
+    } catch (error) {
+      clockfaceErrorMessage =
+        error instanceof Error ? error.message : 'Clockface benchmark failed';
+    } finally {
+      clockfaceBusy = false;
+    }
+  }
+
+  function schedulerBlockEntries(result: ClockfaceBenchmarkResult) {
+    return Object.entries(result.summary.counts.schedulerBlocks);
+  }
+
+  function commandEntries(result: ClockfaceBenchmarkResult) {
+    return Object.entries(result.summary.counts.pixooCommandCounts);
   }
 </script>
 
@@ -117,7 +206,12 @@
     </button>
   </header>
 
-  <section class="controls" aria-label="Benchmark controls">
+  <section class="benchmark-group" aria-label="Pixoo transport benchmark">
+    <div class="section-heading">
+      <h2>Default benchmark</h2>
+    </div>
+
+  <section class="controls" aria-label="Pixoo transport controls">
     <label>
       <span>Frames</span>
       <input type="number" min="1" max="120" bind:value={frames} disabled={busy} />
@@ -204,6 +298,164 @@
       {/each}
     </section>
   {/if}
+  </section>
+
+  <section class="benchmark-group" aria-label="Active clockface benchmark">
+    <div class="section-heading">
+      <h2>Active clockface benchmark</h2>
+    </div>
+
+    <section class="controls clockface-controls" aria-label="Active clockface controls">
+      <label>
+        <span>Duration</span>
+        <input
+          type="number"
+          min="1000"
+          max="120000"
+          step="1000"
+          bind:value={clockfaceDurationMs}
+          disabled={clockfaceBusy}
+        />
+      </label>
+      <button
+        class="run-button"
+        type="button"
+        disabled={clockfaceBusy}
+        onclick={runClockfaceBenchmark}
+      >
+        <Play size={16} />
+        <span>{clockfaceBusy ? 'Running' : 'Run'}</span>
+      </button>
+    </section>
+
+    {#if clockfaceErrorMessage}
+      <p class="error">{clockfaceErrorMessage}</p>
+    {/if}
+
+    {#if clockfaceResult}
+      <section class="summary" aria-label="Active clockface summary">
+        <div>
+          <span>Clockface</span>
+          <strong>{clockfaceResult.activeClockface.name}</strong>
+        </div>
+        <div>
+          <span>Interval</span>
+          <strong>{clockfaceResult.activeClockface.updateIntervalMs} ms</strong>
+        </div>
+        <div>
+          <span>Queue</span>
+          <strong>{clockfaceResult.activeClockface.frameQueueSize}</strong>
+        </div>
+        <div>
+          <span>Frames</span>
+          <strong
+            >{clockfaceResult.summary.counts.renderedFrames}/{clockfaceResult.summary.counts
+              .pushedFrames}</strong
+          >
+        </div>
+      </section>
+
+      <section class="runs" aria-label="Active clockface runs">
+        <article>
+          <h2>Render / queue / push</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Avg</th>
+                <th>P95</th>
+                <th>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Render</td>
+                <td>{formatMetric(clockfaceResult.summary.renderMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.renderMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.renderMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Display buffer</td>
+                <td>{formatMetric(clockfaceResult.summary.displayBufferMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.displayBufferMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.displayBufferMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Render gap</td>
+                <td>{formatMetric(clockfaceResult.summary.renderStartGapMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.renderStartGapMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.renderStartGapMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Queue wait</td>
+                <td>{formatMetric(clockfaceResult.summary.queueWaitMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.queueWaitMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.queueWaitMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Push</td>
+                <td>{formatMetric(clockfaceResult.summary.pushDurationMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.pushDurationMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.pushDurationMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Push gap</td>
+                <td>{formatMetric(clockfaceResult.summary.pushStartGapMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.pushStartGapMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.pushStartGapMs, 'max')}</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article>
+          <h2>Scheduler blocks</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Reason</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each schedulerBlockEntries(clockfaceResult) as [reason, count]}
+                <tr>
+                  <td>{reason}</td>
+                  <td>{count}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </article>
+
+        <article>
+          <h2>Pixoo commands</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Count</th>
+                <th>Errors</th>
+                <th>Avg</th>
+                <th>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each commandEntries(clockfaceResult) as [command, sample]}
+                <tr>
+                  <td>{command}</td>
+                  <td>{sample.count}</td>
+                  <td>{sample.error}</td>
+                  <td>{formatMetric(sample.durationMs, 'avg')}</td>
+                  <td>{formatMetric(sample.durationMs, 'max')}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </article>
+      </section>
+    {/if}
+  </section>
 </main>
 
 <style>
@@ -260,12 +512,23 @@
     color: #7dd3fc;
   }
 
+  .benchmark-group {
+    margin-top: 18px;
+  }
+
+  .section-heading {
+    margin-bottom: 10px;
+  }
+
   .controls {
     display: grid;
     grid-template-columns: repeat(3, minmax(110px, 1fr)) auto;
     gap: 12px;
-    margin-top: 14px;
     padding: 14px;
+  }
+
+  .clockface-controls {
+    grid-template-columns: minmax(110px, 1fr) auto;
   }
 
   label {

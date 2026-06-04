@@ -2,8 +2,14 @@ import { Buffer } from 'node:buffer';
 import { performance } from 'node:perf_hooks';
 import { cpus, freemem, loadavg, platform, release, totalmem } from 'node:os';
 import { getRuntimeConfig } from './config';
-import { runWithClockfacesPaused } from './clockfaces';
-import { getPixooRecoveryState, pushPixelBuffer, sendPixooCommand } from './pixoo';
+import { observeActiveClockface, runWithClockfacesPaused } from './clockfaces';
+import {
+  getPixooRecoveryState,
+  pushPixelBuffer,
+  sendPixooCommand,
+  startPixooCommandCollection,
+  type PixooCommandSample
+} from './pixoo';
 
 type BenchmarkOptions = {
   frames: number;
@@ -38,8 +44,12 @@ const DEFAULT_OPTIONS: BenchmarkOptions = {
   warmupFrames: 2,
   intervalMs: 120
 };
+const DEFAULT_CLOCKFACE_BENCHMARK_OPTIONS = {
+  durationMs: 20_000
+};
 
 let activeBenchmark: Promise<unknown> | undefined;
+let activeClockfaceBenchmark: Promise<unknown> | undefined;
 
 export function getBenchmarkInfo() {
   return {
@@ -62,7 +72,7 @@ export function getBenchmarkInfo() {
 }
 
 export async function runBenchmark(payload: unknown) {
-  if (activeBenchmark) {
+  if (activeBenchmark || activeClockfaceBenchmark) {
     throw new Error('Benchmark is already running.');
   }
 
@@ -73,6 +83,79 @@ export async function runBenchmark(payload: unknown) {
 
   activeBenchmark = benchmark;
   return benchmark;
+}
+
+export async function runClockfaceBenchmark(payload: unknown) {
+  if (activeBenchmark || activeClockfaceBenchmark) {
+    throw new Error('Clockface benchmark is already running.');
+  }
+
+  const options = parseClockfaceBenchmarkOptions(payload);
+  const benchmark = runClockfaceBenchmarkExclusive(options).finally(() => {
+    activeClockfaceBenchmark = undefined;
+  });
+
+  activeClockfaceBenchmark = benchmark;
+  return benchmark;
+}
+
+async function runClockfaceBenchmarkExclusive(options: { durationMs: number }) {
+  const startedAt = new Date();
+  const started = performance.now();
+  const recoveryBefore = getPixooRecoveryState();
+  const config = getRuntimeConfig();
+  const stopCommandCollection = startPixooCommandCollection();
+  let commands: PixooCommandSample[] = [];
+
+  try {
+    const observed = await observeActiveClockface(options.durationMs);
+    commands = stopCommandCollection();
+    const finishedAt = new Date();
+
+    return {
+      ok: true,
+      options,
+      activeClockface: observed.activeClockface,
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      durationMs: round(performance.now() - started),
+      server: getServerInfo(),
+      pixoo: {
+        host: config.pixooHost || null,
+        postUrl: config.pixooPostUrl || null,
+        recoveryBefore,
+        recoveryAfter: getPixooRecoveryState()
+      },
+      summary: {
+        renderMs: summarize(observed.renderSamples.map((sample) => sample.renderMs)),
+        displayBufferMs: summarize(observed.renderSamples.map((sample) => sample.displayBufferMs)),
+        renderStartGapMs: summarize(
+          observed.renderSamples.map((sample) => sample.renderStartGapMs).filter(isNumber)
+        ),
+        queueWaitMs: summarize(observed.pushSamples.map((sample) => sample.queueWaitMs)),
+        pushDurationMs: summarize(observed.pushSamples.map((sample) => sample.pushDurationMs)),
+        pushStartGapMs: summarize(
+          observed.pushSamples.map((sample) => sample.pushStartGapMs).filter(isNumber)
+        ),
+        counts: {
+          renderedFrames: observed.renderSamples.length,
+          pushedFrames: observed.pushSamples.length,
+          scheduledFrames: observed.scheduler.scheduled,
+          schedulerBlocks: observed.scheduler.blockReasons,
+          pixooCommands: commands.length,
+          pixooCommandCounts: summarizeCommands(commands)
+        }
+      },
+      samples: {
+        render: observed.renderSamples,
+        push: observed.pushSamples
+      },
+      commands
+    };
+  } catch (error) {
+    commands = stopCommandCollection();
+    throw error;
+  }
 }
 
 async function runBenchmarkExclusive(options: BenchmarkOptions) {
@@ -161,6 +244,19 @@ function parseBenchmarkOptions(payload: unknown): BenchmarkOptions {
   };
 }
 
+function parseClockfaceBenchmarkOptions(payload: unknown) {
+  const record = isRecord(payload) ? payload : {};
+
+  return {
+    durationMs: clampInt(
+      record.durationMs,
+      DEFAULT_CLOCKFACE_BENCHMARK_OPTIONS.durationMs,
+      1_000,
+      120_000
+    )
+  };
+}
+
 function clampInt(value: unknown, fallback: number, min: number, max: number) {
   const number = Number(value);
 
@@ -200,6 +296,47 @@ function summarizeSamples(samples: BenchmarkSample[]): BenchmarkSummary {
     pushMs: summarize(samples.map((sample) => sample.pushMs).filter(isNumber)),
     pushStartGapMs: summarize(samples.map((sample) => sample.pushStartGapMs).filter(isNumber))
   };
+}
+
+function summarizeCommands(samples: PixooCommandSample[]) {
+  const groups: Record<
+    string,
+    {
+      count: number;
+      ok: number;
+      error: number;
+      durationMs: number[];
+    }
+  > = {};
+
+  for (const sample of samples) {
+    groups[sample.command] ??= {
+      count: 0,
+      ok: 0,
+      error: 0,
+      durationMs: []
+    };
+    groups[sample.command].count += 1;
+    groups[sample.command].durationMs.push(sample.durationMs);
+
+    if (sample.ok) {
+      groups[sample.command].ok += 1;
+    } else {
+      groups[sample.command].error += 1;
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(groups).map(([command, group]) => [
+      command,
+      {
+        count: group.count,
+        ok: group.ok,
+        error: group.error,
+        durationMs: summarize(group.durationMs)
+      }
+    ])
+  );
 }
 
 function summarize(values: number[]) {

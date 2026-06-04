@@ -76,6 +76,8 @@ type ClockfaceRunner = {
   pendingFrames: ClockfaceFrame[];
   nextPushAt?: number;
   lastPushStartedAt?: number;
+  nextFrameId: number;
+  nextScheduledDelayMs?: number | null;
   rendering?: boolean;
   sending?: boolean;
   timer?: ReturnType<typeof setTimeout>;
@@ -85,8 +87,47 @@ type ClockfaceFrame = {
   activeId: string;
   buffer: number[];
   enqueuedAt: number;
+  frameId: number;
+  scheduledDelayMs: number | null;
   size: number;
   updateIntervalMs: number;
+};
+
+export type ClockfaceRenderBenchmarkSample = {
+  frameId: number;
+  renderMs: number;
+  displayBufferMs: number;
+  renderStartGapMs: number | null;
+  queueBefore: number;
+  queueAfter: number;
+  scheduledDelayMs: number | null;
+  startedAtMs: number;
+};
+
+export type ClockfacePushBenchmarkSample = {
+  frameId: number;
+  queueWaitMs: number;
+  pendingAfterShift: number;
+  pushStartGapMs: number | null;
+  pushDurationMs: number;
+  size: number;
+  updateIntervalMs: number;
+  startedAtMs: number;
+};
+
+export type ClockfaceSchedulerBenchmark = {
+  scheduled: number;
+  blockReasons: Record<string, number>;
+};
+
+type ClockfaceBenchmarkCollector = {
+  runnerId: string;
+  startedAt: number;
+  renderSamples: ClockfaceRenderBenchmarkSample[];
+  pushSamples: ClockfacePushBenchmarkSample[];
+  scheduler: ClockfaceSchedulerBenchmark;
+  lastRenderStartedAt?: number;
+  lastPushStartedAt?: number;
 };
 
 const PIXOO_NATIVE_SIZE = 64;
@@ -104,6 +145,7 @@ type ClockfaceRuntimeState = {
   pushQueue?: Promise<void>;
   recoveryTimer?: ReturnType<typeof setTimeout>;
   recoveryUnsubscribe?: () => void;
+  benchmarkCollector?: ClockfaceBenchmarkCollector;
   serviceTransition?: boolean;
   signalsRegistered?: boolean;
 };
@@ -336,6 +378,65 @@ export function refreshActiveClockfaceInBackground() {
   });
 }
 
+export async function observeActiveClockface(durationMs: number) {
+  await waitForClockfaces();
+
+  if (clockfaceRuntimeState.benchmarkCollector) {
+    throw new Error('Clockface benchmark is already running.');
+  }
+
+  if (isPixooPalOff() || isClockfacesPaused()) {
+    throw new Error('Clockface benchmark cannot run while PixooPal is paused.');
+  }
+
+  const runner = getActiveRunner();
+
+  if (!runner || !isRunnerActive(runner)) {
+    throw new Error('Clockface benchmark needs an active clockface runner.');
+  }
+
+  const active = getClockfaceEntry(runner.id);
+  const startedAt = new Date();
+  const collector: ClockfaceBenchmarkCollector = {
+    runnerId: runner.id,
+    startedAt: Date.now(),
+    renderSamples: [],
+    pushSamples: [],
+    scheduler: {
+      scheduled: 0,
+      blockReasons: {}
+    }
+  };
+
+  clockfaceRuntimeState.benchmarkCollector = collector;
+
+  try {
+    await delay(durationMs);
+  } finally {
+    if (clockfaceRuntimeState.benchmarkCollector === collector) {
+      clockfaceRuntimeState.benchmarkCollector = undefined;
+    }
+  }
+
+  const finishedAt = new Date();
+
+  return {
+    activeClockface: {
+      id: active.id,
+      name: active.name,
+      resolution: active.instance.resolution,
+      updateIntervalMs: getFrameInterval(active.instance),
+      frameQueueSize: getFrameBufferSize(active.instance)
+    },
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+    renderSamples: collector.renderSamples,
+    pushSamples: collector.pushSamples,
+    scheduler: collector.scheduler
+  };
+}
+
 export async function runWithClockfacesPaused<T>(operation: () => Promise<T>) {
   const activeId = getActiveClockfaceId();
 
@@ -559,7 +660,8 @@ async function startActiveClockface(id: string) {
   const runner: ClockfaceRunner = {
     id,
     stopped: false,
-    pendingFrames: []
+    pendingFrames: [],
+    nextFrameId: 1
   };
 
   clockfaceRuntimeState.activeRunner = runner;
@@ -619,25 +721,23 @@ function disposeClockfaces() {
 }
 
 function scheduleNextFrame(runner: ClockfaceRunner, clockface: Clockface) {
-  if (
-    disposed ||
-    isClockfacesPaused() ||
-    runner.stopped ||
-    runner.pendingFrames.length >= getFrameBufferSize(clockface) ||
-    runner.rendering ||
-    runner.timer ||
-    getFrameInterval(clockface) === 0
-  ) {
+  const blockReason = getScheduleBlockReason(runner, clockface);
+
+  if (blockReason) {
+    collectScheduleBlock(runner, blockReason);
     return;
   }
 
+  const delayMs = getNextRenderDelay(runner, clockface);
+  runner.nextScheduledDelayMs = delayMs;
+  collectFrameScheduled(runner);
   runner.timer = setTimeout(() => {
     runner.timer = undefined;
     runFrame(runner, clockface).catch((error) => {
       console.error('Clockface frame failed:', error);
       scheduleNextFrame(runner, clockface);
     });
-  }, getNextRenderDelay(runner, clockface));
+  }, delayMs);
 }
 
 async function runFrame(runner: ClockfaceRunner, clockface: Clockface) {
@@ -658,15 +758,27 @@ async function renderRunnerFrame(runner: ClockfaceRunner, clockface: Clockface) 
   }
 
   runner.rendering = true;
+  const frameId = runner.nextFrameId ?? 1;
+  runner.nextFrameId = frameId + 1;
+  const scheduledDelayMs = runner.nextScheduledDelayMs ?? null;
+  runner.nextScheduledDelayMs = null;
+  const renderStartedAt = Date.now();
+  const queueBefore = runner.pendingFrames.length;
+  let renderMs = 0;
+  let displayBufferMs = 0;
 
   try {
+    const renderStarted = Date.now();
     await clockface.render();
+    renderMs = Date.now() - renderStarted;
 
     if (!isRunnerActive(runner)) {
       return;
     }
 
+    const displayStarted = Date.now();
     const display = await getDisplayBuffer(clockface);
+    displayBufferMs = Date.now() - displayStarted;
 
     if (!isRunnerActive(runner)) {
       return;
@@ -677,8 +789,20 @@ async function renderRunnerFrame(runner: ClockfaceRunner, clockface: Clockface) 
       activeId: runner.id,
       buffer: [...display.buffer],
       enqueuedAt: Date.now(),
+      frameId,
+      scheduledDelayMs,
       size: display.size,
       updateIntervalMs: getFrameInterval(clockface)
+    });
+    collectRenderSample(runner, {
+      frameId,
+      renderMs,
+      displayBufferMs,
+      renderStartGapMs: null,
+      queueBefore,
+      queueAfter: runner.pendingFrames.length,
+      scheduledDelayMs,
+      startedAtMs: renderStartedAt
     });
     debugLog('Queued rendered frame.', {
       runnerId: runner.id,
@@ -720,9 +844,10 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
         continue;
       }
 
+      const pendingAfterShift = runner.pendingFrames.length;
       debugLog('Dequeuing frame for Pixoo push.', {
         runnerId: runner.id,
-        pendingAfterShift: runner.pendingFrames.length,
+        pendingAfterShift,
         frameAgeBeforeWaitMs: Date.now() - frame.enqueuedAt,
         nextPushAt: runner.nextPushAt ?? null,
         size: frame.size,
@@ -734,6 +859,12 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
       runner.lastPushStartedAt = pushStartedAt;
       await enqueueFramePush(runner, frame);
       runner.nextPushAt = pushStartedAt + frame.updateIntervalMs;
+      collectPushSample(runner, frame, {
+        pendingAfterShift,
+        pushStartedAt,
+        previousPushStartedAt,
+        pushDurationMs: Date.now() - pushStartedAt
+      });
 
       debugLog('Frame push completed.', {
         runnerId: runner.id,
@@ -812,6 +943,127 @@ function getFrameBufferSize(clockface: Clockface) {
   }
 
   return Math.max(1, Math.round(frameQueueSize));
+}
+
+function getScheduleBlockReason(runner: ClockfaceRunner, clockface: Clockface) {
+  if (disposed) {
+    return 'disposed';
+  }
+
+  if (isClockfacesPaused()) {
+    return 'paused';
+  }
+
+  if (runner.stopped) {
+    return 'stopped';
+  }
+
+  if (runner.pendingFrames.length >= getFrameBufferSize(clockface)) {
+    return 'queueFull';
+  }
+
+  if (runner.rendering) {
+    return 'rendering';
+  }
+
+  if (runner.timer) {
+    return 'timerActive';
+  }
+
+  if (getFrameInterval(clockface) === 0) {
+    return 'staticClockface';
+  }
+
+  return '';
+}
+
+function getActiveBenchmarkCollector(runner: ClockfaceRunner) {
+  const collector = clockfaceRuntimeState.benchmarkCollector;
+  return collector?.runnerId === runner.id ? collector : undefined;
+}
+
+function collectFrameScheduled(runner: ClockfaceRunner) {
+  const collector = getActiveBenchmarkCollector(runner);
+
+  if (!collector) {
+    return;
+  }
+
+  collector.scheduler.scheduled += 1;
+}
+
+function collectScheduleBlock(runner: ClockfaceRunner, reason: string) {
+  const collector = getActiveBenchmarkCollector(runner);
+
+  if (!collector) {
+    return;
+  }
+
+  collector.scheduler.blockReasons[reason] = (collector.scheduler.blockReasons[reason] ?? 0) + 1;
+}
+
+function collectRenderSample(
+  runner: ClockfaceRunner,
+  sample: ClockfaceRenderBenchmarkSample
+) {
+  const collector = getActiveBenchmarkCollector(runner);
+
+  if (!collector) {
+    return;
+  }
+
+  const renderStartGapMs =
+    typeof collector.lastRenderStartedAt === 'number'
+      ? sample.startedAtMs - collector.lastRenderStartedAt
+      : null;
+  collector.lastRenderStartedAt = sample.startedAtMs;
+
+  collector.renderSamples.push({
+    ...sample,
+    renderStartGapMs,
+    startedAtMs: sample.startedAtMs - collector.startedAt
+  });
+}
+
+function collectPushSample(
+  runner: ClockfaceRunner,
+  frame: ClockfaceFrame,
+  {
+    pendingAfterShift,
+    previousPushStartedAt,
+    pushDurationMs,
+    pushStartedAt
+  }: {
+    pendingAfterShift: number;
+    previousPushStartedAt?: number;
+    pushDurationMs: number;
+    pushStartedAt: number;
+  }
+) {
+  const collector = getActiveBenchmarkCollector(runner);
+
+  if (!collector) {
+    return;
+  }
+
+  const pushStartGapMs =
+    typeof collector.lastPushStartedAt === 'number'
+      ? pushStartedAt - collector.lastPushStartedAt
+      : typeof previousPushStartedAt === 'number'
+        ? pushStartedAt - previousPushStartedAt
+        : null;
+  collector.lastPushStartedAt = pushStartedAt;
+
+  collector.pushSamples.push({
+    frameId: frame.frameId,
+    queueWaitMs: pushStartedAt - frame.enqueuedAt,
+    pendingAfterShift,
+    pushStartGapMs,
+    pushDurationMs,
+    size: frame.size,
+    updateIntervalMs: frame.updateIntervalMs,
+    startedAtMs: pushStartedAt - collector.startedAt
+  });
 }
 
 function delay(ms: number) {
