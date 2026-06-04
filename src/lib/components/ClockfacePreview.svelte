@@ -3,35 +3,34 @@
 
   export let previewSrc: string;
   export let fallbackSrc = '';
+  export let mode: 'mjpeg' | 'polling' = 'mjpeg';
 
-  const MJPEG_LOAD_TIMEOUT_MS = 5000;
   const POLLING_INTERVAL_MS = 500;
 
-  let mjpegLoaded = false;
   let usePolling = false;
   let pollingSrc = '';
-  let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let activePreviewKey = '';
   let pollingTimer: ReturnType<typeof setInterval> | undefined;
 
   $: {
-    mjpegLoaded = false;
-    usePolling = false;
-    clearTimeout(fallbackTimer);
-    clearInterval(pollingTimer);
-    pollingTimer = undefined;
+    const nextPreviewKey = `${mode}:${previewSrc}:${fallbackSrc}`;
 
-    if (previewSrc && fallbackSrc) {
-      fallbackTimer = setTimeout(() => {
-        if (!mjpegLoaded) {
-          startPollingPreview();
-        }
-      }, MJPEG_LOAD_TIMEOUT_MS);
+    if (nextPreviewKey !== activePreviewKey) {
+      activePreviewKey = nextPreviewKey;
+      resetPreview();
     }
   }
 
-  function markMjpegLoaded() {
-    mjpegLoaded = true;
-    clearTimeout(fallbackTimer);
+  function resetPreview() {
+    usePolling = false;
+    pollingSrc = '';
+    clearInterval(pollingTimer);
+    pollingTimer = undefined;
+
+    if (mode === 'polling') {
+      startPollingPreview();
+      return;
+    }
   }
 
   function startPollingPreview() {
@@ -41,11 +40,17 @@
   }
 
   function updatePollingSrc() {
-    pollingSrc = `${fallbackSrc}${fallbackSrc.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    const source = fallbackSrc || previewSrc;
+
+    if (!source) {
+      pollingSrc = '';
+      return;
+    }
+
+    pollingSrc = `${source}${source.includes('?') ? '&' : '?'}t=${Date.now()}`;
   }
 
   onDestroy(() => {
-    clearTimeout(fallbackTimer);
     clearInterval(pollingTimer);
   });
 </script>
@@ -65,7 +70,6 @@
           <img
             aria-label="Pixoo Buffer"
             alt=""
-            onload={markMjpegLoaded}
             onerror={startPollingPreview}
             src={previewSrc}
           />

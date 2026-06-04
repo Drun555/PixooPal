@@ -1,4 +1,5 @@
 import type { RequestHandler } from '@sveltejs/kit';
+import { refreshActiveClockfacePreview } from '$lib/server/clockfaces';
 import {
   getEmptyPreviewFrame,
   getLatestPreviewFrame,
@@ -10,13 +11,23 @@ import {
 const BOUNDARY = 'pixoopal-preview';
 const encoder = new TextEncoder();
 const MIN_FRAME_INTERVAL_MS = 100;
+const IDLE_FRAME_INTERVAL_MS = 1000;
 
 export const GET: RequestHandler = async () => {
+  let initialFrame = getLatestPreviewFrame() ?? getEmptyPreviewFrame();
+
+  try {
+    initialFrame = await refreshActiveClockfacePreview();
+  } catch {
+    initialFrame = getLatestPreviewFrame() ?? initialFrame;
+  }
+
   let closed = false;
   let unsubscribe: (() => void) | undefined;
   let lastSentAt = 0;
   let pendingFrame: PreviewFrame | undefined;
   let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+  let idleTimer: ReturnType<typeof setInterval> | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -61,23 +72,29 @@ export const GET: RequestHandler = async () => {
         }, remaining);
       };
 
-      scheduleFrame(getLatestPreviewFrame() ?? getEmptyPreviewFrame());
+      scheduleFrame(initialFrame);
       unsubscribe = subscribePreviewFrames(scheduleFrame);
+      idleTimer = setInterval(() => {
+        scheduleFrame(getLatestPreviewFrame() ?? initialFrame);
+      }, IDLE_FRAME_INTERVAL_MS);
     },
     cancel() {
       closed = true;
       clearTimeout(pendingTimer);
+      clearInterval(idleTimer);
       unsubscribe?.();
     }
   });
 
   return new Response(stream, {
     headers: {
-      'cache-control': 'no-cache, no-store, must-revalidate',
-      'content-encoding': 'identity',
-      'content-type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
-      'pragma': 'no-cache',
-      'x-accel-buffering': 'no'
-    }
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Content-Type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
+      'Content-Encoding': 'identity',
+      'X-Accel-Buffering': 'no',
+      'Connection': 'keep-alive',
+    },
   });
 };

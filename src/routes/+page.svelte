@@ -14,7 +14,7 @@
   } from '@lucide/svelte';
   import ClockfaceInputs from '$lib/components/ClockfaceInputs.svelte';
   import ClockfacePreview from '$lib/components/ClockfacePreview.svelte';
-  import { apiUrl, apiWebSocketUrl } from '$lib/client/urls';
+  import { apiUrl, apiWebSocketUrl, isHomeAssistantIngress } from '$lib/client/urls';
 
   type PixooSettings = {
     Brightness?: number;
@@ -141,6 +141,7 @@
   let notificationBeep = true;
   let previewSrc = '';
   let previewFallbackSrc = '';
+  let previewMode: 'mjpeg' | 'polling' = 'mjpeg';
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
@@ -569,7 +570,8 @@
   }
 
   onMount(() => {
-    previewSrc = apiUrl('/api/v1/preview.mjpeg');
+    previewMode = isHomeAssistantIngress() ? 'polling' : 'mjpeg';
+    previewSrc = apiUrl(previewMode === 'polling' ? '/api/v1/preview.jpg' : '/api/v1/preview.mjpeg');
     previewFallbackSrc = apiUrl('/api/v1/preview.jpg');
 
     refreshConfig()
@@ -623,7 +625,7 @@
       <p class="connection-note">{pixooConnectionMessage}</p>
     </section>
 
-    <ClockfacePreview fallbackSrc={previewFallbackSrc} {previewSrc} />
+    <ClockfacePreview fallbackSrc={previewFallbackSrc} mode={previewMode} {previewSrc} />
   </div>
 
   <div class="right-column">

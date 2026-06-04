@@ -305,6 +305,12 @@ export async function getActiveClockfacePreview() {
   };
 }
 
+export async function refreshActiveClockfacePreview() {
+  const frame = await getActiveClockfacePreview();
+  publishPreviewFrame(frame);
+  return frame;
+}
+
 export async function setActiveClockface(id: string) {
   await waitForClockfaces();
 
