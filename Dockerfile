@@ -12,6 +12,10 @@ FROM deps AS build
 COPY . .
 RUN npm run build
 
+FROM deps AS prod-deps
+
+RUN npm prune --omit=dev --ignore-scripts && npm cache clean --force
+
 FROM node:22-alpine AS runtime
 
 WORKDIR /app
@@ -31,8 +35,7 @@ LABEL io.hass.version="${BUILD_VERSION}" \
 RUN apk add --no-cache ffmpeg gcompat
 
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
-
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/build ./build
 COPY scripts ./scripts
 COPY package.json ./package.json

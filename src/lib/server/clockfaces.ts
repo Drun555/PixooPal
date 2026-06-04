@@ -75,6 +75,7 @@ type ClockfaceRunner = {
   stopped: boolean;
   pendingFrames: ClockfaceFrame[];
   nextPushAt?: number;
+  lastPushStartedAt?: number;
   rendering?: boolean;
   sending?: boolean;
   timer?: ReturnType<typeof setTimeout>;
@@ -83,6 +84,7 @@ type ClockfaceRunner = {
 type ClockfaceFrame = {
   activeId: string;
   buffer: number[];
+  enqueuedAt: number;
   size: number;
   updateIntervalMs: number;
 };
@@ -658,6 +660,7 @@ async function renderRunnerFrame(runner: ClockfaceRunner, clockface: Clockface) 
     runner.pendingFrames.push({
       activeId: runner.id,
       buffer: [...display.buffer],
+      enqueuedAt: Date.now(),
       size: display.size,
       updateIntervalMs: getFrameInterval(clockface)
     });
@@ -704,21 +707,24 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
       debugLog('Dequeuing frame for Pixoo push.', {
         runnerId: runner.id,
         pendingAfterShift: runner.pendingFrames.length,
+        frameAgeBeforeWaitMs: Date.now() - frame.enqueuedAt,
         nextPushAt: runner.nextPushAt ?? null,
         size: frame.size,
         updateIntervalMs: frame.updateIntervalMs
       });
       await waitForRunnerPushSlot(runner);
       const pushStartedAt = Date.now();
+      const previousPushStartedAt = runner.lastPushStartedAt;
+      runner.lastPushStartedAt = pushStartedAt;
       await enqueueFramePush(runner, frame);
       runner.nextPushAt = pushStartedAt + frame.updateIntervalMs;
 
-      // await waitForRunnerPushSlot(runner);
-      // await enqueueFramePush(runner, frame);
-      // runner.nextPushAt = Date.now() + frame.updateIntervalMs;
-
       debugLog('Frame push completed.', {
         runnerId: runner.id,
+        frameAgeAtPushStartMs: pushStartedAt - frame.enqueuedAt,
+        frameAgeAtPushEndMs: Date.now() - frame.enqueuedAt,
+        pushStartGapMs:
+          typeof previousPushStartedAt === 'number' ? pushStartedAt - previousPushStartedAt : null,
         pushDurationMs: Date.now() - pushStartedAt,
         pendingFrames: runner.pendingFrames.length,
         nextPushAt: runner.nextPushAt
