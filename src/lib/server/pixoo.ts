@@ -99,6 +99,33 @@ export async function getPixooSettings() {
   }
 }
 
+export async function getPixooSettingsSnapshot() {
+  const config = requirePixooHost();
+  const { controller, timeout } = withTimeout(2000);
+
+  try {
+    const response = await fetch(config.pixooPostUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ Command: 'Channel/GetAllConf' }),
+      signal: controller.signal
+    });
+
+    const bodyText = await response.text();
+    const body = bodyText ? safeParseJson(bodyText) : {};
+
+    if (!response.ok) {
+      throw new Error(`Pixoo returned HTTP ${response.status}: ${bodyText}`);
+    }
+
+    return body;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function getEmptyPreviewBuffer() {
   return {
     size: PIXOO_SIZE,

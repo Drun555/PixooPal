@@ -21,6 +21,7 @@ import {
 import { publishPixooPalEvent, publishPreviewFrame } from './previewStream';
 import { fileClockfacePersistenceStore } from './clockfacePersistence';
 import { getCommunityClockfacesDebugInfo, getInstalledCommunityClockfaces } from './communityClockfaces';
+import { getClockfaceHomeAssistantClient } from './homeAssistant';
 
 export type ClockfaceInputView = Omit<ClockfaceInput, 'onSubmit'>;
 export type ClockfaceInputRowView = ClockfaceInputView[];
@@ -107,6 +108,7 @@ type ClockfaceRuntimeState = {
 const clockfaceRuntimeState = getClockfaceRuntimeState();
 clockfaceRuntimeState.dispose?.();
 Clockface.configurePersistence(fileClockfacePersistenceStore);
+Clockface.configureHomeAssistant(getClockfaceHomeAssistantClient());
 
 const manifests = import.meta.glob<ClockfaceManifest>('../clockfaces/*/manifest.json', {
   eager: true,

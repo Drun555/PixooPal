@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { getClockfacesView } from '$lib/server/clockfaces';
 import { getPixooPalControlState } from '$lib/server/control';
 import { getRuntimeConfig } from '$lib/server/config';
-import { getPixooRecoveryState, getPixooSettings } from '$lib/server/pixoo';
+import { getPixooRecoveryState, getPixooSettingsSnapshot } from '$lib/server/pixoo';
 import { publishPixooPalEvent } from '$lib/server/previewStream';
 
 export const GET: RequestHandler = async () => {
@@ -34,7 +34,7 @@ export const GET: RequestHandler = async () => {
   }
 
   try {
-    const settings = await getPixooSettings();
+    const settings = await getPixooSettingsSnapshot();
 
     const body = {
       ok: true,

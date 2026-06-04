@@ -30,4 +30,4 @@ environment:
   BODY_SIZE_LIMIT: "25M"
 discovery:
   - pixoopal
-watchdog: http://[HOST]:[PORT:5173]/api/v1/status
+watchdog: http://[HOST]:[PORT:5173]/api/v1/health
