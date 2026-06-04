@@ -731,7 +731,7 @@ async function waitForRunnerPushSlot(runner: ClockfaceRunner) {
 }
 
 function getNextRenderDelay(runner: ClockfaceRunner, clockface: Clockface) {
-  return runner.sending || runner.pendingFrames.length > 0 ? 0 : getFrameInterval(clockface);
+  return getFrameInterval(clockface);
 }
 
 function getFrameBufferSize(clockface: Clockface) {
