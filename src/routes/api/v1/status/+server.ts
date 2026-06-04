@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { getClockfacesView } from '$lib/server/clockfaces';
 import { getPixooPalControlState } from '$lib/server/control';
 import { getRuntimeConfig } from '$lib/server/config';
-import { getCachedPixooSettings, getPixooRecoveryState } from '$lib/server/pixoo';
+import { getPixooRecoveryState, getPixooSettings } from '$lib/server/pixoo';
 import { publishPixooPalEvent } from '$lib/server/previewStream';
 
 export const GET: RequestHandler = async () => {
@@ -33,23 +33,44 @@ export const GET: RequestHandler = async () => {
     return json(body);
   }
 
-  const recovery = getPixooRecoveryState();
-  const body = {
-    ok: true,
-    reachable: recovery.reachable,
-    config,
-    settings: getCachedPixooSettings(),
-    control,
-    recovery,
-    activeClockface: clockfaces.active,
-    message: recovery.reachable ? undefined : 'Pixoo reachability has not been confirmed yet.'
-  };
+  try {
+    const settings = await getPixooSettings();
+    const body = {
+      ok: true,
+      reachable: true,
+      config,
+      settings,
+      control,
+      recovery: getPixooRecoveryState(),
+      activeClockface: clockfaces.active
+    };
 
-  publishPixooPalEvent({
-    type: 'device_status',
-    reachable: body.reachable,
-    status: body
-  });
+    publishPixooPalEvent({
+      type: 'device_status',
+      reachable: body.reachable,
+      status: body
+    });
 
-  return json(body);
+    return json(body);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not reach Pixoo.';
+    const body = {
+      ok: false,
+      reachable: false,
+      config,
+      settings: null,
+      control,
+      recovery: getPixooRecoveryState(),
+      activeClockface: clockfaces.active,
+      message
+    };
+
+    publishPixooPalEvent({
+      type: 'device_status',
+      reachable: body.reachable,
+      status: body
+    });
+
+    return json(body, { status: 503 });
+  }
 };
