@@ -996,6 +996,7 @@
   }
 
   .pixoo-status-card {
+    position: relative;
     display: grid;
     width: min(calc(42vw + 44px), 474px);
     max-width: 100%;
@@ -1007,7 +1008,7 @@
     box-shadow:
       0 14px 40px rgba(0, 0, 0, 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(14px);
+    overflow: visible;
   }
 
   .status-title {
@@ -1085,13 +1086,14 @@
   .control-block,
   .notification-panel,
   .clockface-panel {
+    position: relative;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
     background: rgba(12, 16, 23, 0.78);
     box-shadow:
       0 18px 48px rgba(0, 0, 0, 0.28),
       inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(16px);
+    overflow: visible;
   }
 
   .pixoopal-power {
@@ -1174,11 +1176,6 @@
     padding: 14px;
   }
 
-  .brightness-block {
-    position: relative;
-    z-index: 20;
-  }
-
   .control-heading,
   .panel-title {
     display: flex;
@@ -1244,7 +1241,7 @@
     position: absolute;
     top: calc(100% + 10px);
     right: 0;
-    z-index: 40;
+    z-index: 80;
     display: grid;
     width: min(320px, calc(100vw - 56px));
     gap: 12px;

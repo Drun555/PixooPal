@@ -532,7 +532,6 @@
     box-shadow:
       0 18px 48px rgba(0, 0, 0, 0.28),
       inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(16px);
   }
 
   .picture,
@@ -642,7 +641,6 @@
     place-items: center;
     padding: 24px;
     background: rgba(2, 5, 10, 0.76);
-    backdrop-filter: blur(12px);
   }
 
   .review-modal {

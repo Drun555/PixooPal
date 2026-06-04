@@ -27,20 +27,3 @@ TBD
 ## Running Locally
 
 TBD
-
-## FAQ
-Q: Is this an AI slop?
-
-A: Absolutely! But here's the thing: Firstly, I'm a (kinda) experienced developer. Secondly, Pixoo seems to be a good target for this kind of slop: it wouldn't cause any harm if it'll break.
-
-
-Q: How can I create a new clockface?
- 
-A: [It's very simple](https://github.com/Drun555/PixooPal-Community)
-
-
-Q: Can you run Doom on this thing?
-
-A: Poor's man Doom, but yes. It'll be available ASAP.
-
-<img width="500" alt="image" src="https://github.com/user-attachments/assets/9cb02627-55bc-4115-81e9-a42b74fe5bbe" />

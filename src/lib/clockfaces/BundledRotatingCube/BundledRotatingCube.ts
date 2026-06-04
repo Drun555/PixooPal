@@ -77,7 +77,7 @@ let angle = 0;
 
 export default defineClockface({
   resolution: (context) => getDisplayResolution(context.data.displayResolution),
-  frameQueueSize: 0,
+  frameQueueSize: 10,
   data: {
     cubeColor: data.color(DEFAULT_DATA.cubeColor),
     borderColor: data.color(DEFAULT_DATA.borderColor),

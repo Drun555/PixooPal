@@ -349,7 +349,6 @@
 
   .settings-area {
     position: relative;
-    z-index: 80;
     display: flex;
     justify-content: flex-end;
   }

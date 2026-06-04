@@ -67,7 +67,6 @@
     text-decoration: none;
     font-size: 0.9rem;
     font-weight: 850;
-    backdrop-filter: blur(14px);
   }
 
   .tabs a.active {

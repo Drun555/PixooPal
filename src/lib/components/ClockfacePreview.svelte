@@ -131,7 +131,6 @@
       0 0 80px var(--preview-glow),
       0 26px 82px rgba(0, 0, 0, 0.58),
       inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(18px);
   }
 
   .pixoo-frame {

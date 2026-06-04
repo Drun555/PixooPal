@@ -9,13 +9,15 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/Drun555/PixooPal/issues</Support>
   <Project>https://github.com/Drun555/PixooPal</Project>
-  <Overview>SvelteKit WebUI for controlling a Divoom Pixoo display.</Overview>
-  <Description>PixooPal provides a browser UI, live preview, clockfaces, notifications, and direct controls for a Divoom Pixoo display on your local network.</Description>
+  <Overview>PixooPal is a server-side clockface engine for your Divoom Pixoo 64.</Overview>
+  <Description>PixooPal provides a browser UI, live preview, clockfaces, notifications, and direct controls for a Divoom Pixoo 64 display on your local network. Work in progress.</Description>
   <Category>Tools:Utilities</Category>
   <WebUI>http://[IP]:[PORT:5173]</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/Drun555/PixooPal/main/templates/pixoopal.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/Drun555/PixooPal/main/Picture.png</Icon>
+  <Icon>https://raw.githubusercontent.com/Drun555/PixooPal/main/addons/pixoopal/icon.png</Icon>
   <Config Name="WebUI Port" Target="5173" Default="5173" Mode="tcp" Description="PixooPal Web UI port." Type="Port" Display="always" Required="true" Mask="false">5173</Config>
   <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/pixoopal" Mode="rw" Description="Persistent PixooPal clockface state." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/pixoopal</Config>
   <Config Name="Pixoo Device Address" Target="PIXOO_DEVICE_ADDRESS" Default="" Mode="" Description="Pixoo host or IP address on your local network." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Debug Logging" Target="DEBUG_LOGGING" Default="false" Mode="" Description="Set to true to include additional queue, clockface, and Pixoo command diagnostics in logs." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Disable mDNS Discovery" Target="PIXOOPAL_DISABLE_MDNS" Default="false" Mode="" Description="Set to true to disable PixooPal mDNS/Bonjour discovery announcements." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
 </Container>
