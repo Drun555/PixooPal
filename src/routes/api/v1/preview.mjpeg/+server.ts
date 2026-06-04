@@ -74,6 +74,7 @@ export const GET: RequestHandler = async () => {
   return new Response(stream, {
     headers: {
       'cache-control': 'no-cache, no-store, must-revalidate',
+      'content-encoding': 'identity',
       'content-type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
       'pragma': 'no-cache',
       'x-accel-buffering': 'no'

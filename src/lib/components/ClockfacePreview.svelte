@@ -1,5 +1,53 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
+
   export let previewSrc: string;
+  export let fallbackSrc = '';
+
+  const MJPEG_LOAD_TIMEOUT_MS = 5000;
+  const POLLING_INTERVAL_MS = 500;
+
+  let mjpegLoaded = false;
+  let usePolling = false;
+  let pollingSrc = '';
+  let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let pollingTimer: ReturnType<typeof setInterval> | undefined;
+
+  $: {
+    mjpegLoaded = false;
+    usePolling = false;
+    clearTimeout(fallbackTimer);
+    clearInterval(pollingTimer);
+    pollingTimer = undefined;
+
+    if (previewSrc && fallbackSrc) {
+      fallbackTimer = setTimeout(() => {
+        if (!mjpegLoaded) {
+          startPollingPreview();
+        }
+      }, MJPEG_LOAD_TIMEOUT_MS);
+    }
+  }
+
+  function markMjpegLoaded() {
+    mjpegLoaded = true;
+    clearTimeout(fallbackTimer);
+  }
+
+  function startPollingPreview() {
+    usePolling = true;
+    updatePollingSrc();
+    pollingTimer ??= setInterval(updatePollingSrc, POLLING_INTERVAL_MS);
+  }
+
+  function updatePollingSrc() {
+    pollingSrc = `${fallbackSrc}${fallbackSrc.includes('?') ? '&' : '?'}t=${Date.now()}`;
+  }
+
+  onDestroy(() => {
+    clearTimeout(fallbackTimer);
+    clearInterval(pollingTimer);
+  });
 </script>
 
 <section class="preview-stage">
@@ -7,10 +55,18 @@
   <div class="preview-shell">
     <div class="pixoo-frame">
       <div class="pixel-screen">
-        {#if previewSrc}
+        {#if usePolling && pollingSrc}
           <img
             aria-label="Pixoo Buffer"
             alt=""
+            src={pollingSrc}
+          />
+        {:else if previewSrc}
+          <img
+            aria-label="Pixoo Buffer"
+            alt=""
+            onload={markMjpegLoaded}
+            onerror={startPollingPreview}
             src={previewSrc}
           />
         {/if}
