@@ -7,11 +7,13 @@
   <div class="preview-shell">
     <div class="pixoo-frame">
       <div class="pixel-screen">
-        <img
-          aria-label="Pixoo Buffer"
-          alt=""
-          src={previewSrc}
-        />
+        {#if previewSrc}
+          <img
+            aria-label="Pixoo Buffer"
+            alt=""
+            src={previewSrc}
+          />
+        {/if}
       </div>
     </div>
   </div>

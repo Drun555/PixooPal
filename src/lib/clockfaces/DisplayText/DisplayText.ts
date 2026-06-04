@@ -1,4 +1,5 @@
-import { defineClockface, data, input } from '@pixoopal/clockface';
+import { color, defineClockface, data, input } from '@pixoopal/clockface';
+import { drawBitmapText, measureBitmapText } from '@pixoopal/clockface/bitmap-text';
 
 const DEFAULT_DATA = {
   text: 'love',
@@ -23,16 +24,21 @@ export default defineClockface({
     input.color('textColor', 'Text color'),
     input.color('backgroundColor', 'Background color')
   ],
-  render: (context) => {
+  render: async (context) => {
     const text = (context.data.text || DEFAULT_DATA.text).trim() || DEFAULT_DATA.text;
 
     context.canvas.clear(context.data.backgroundColor || DEFAULT_DATA.backgroundColor);
-    context.canvas.text(text, centerTextX(text), 28, {
-      fill: context.data.textColor || DEFAULT_DATA.textColor
+    await drawBitmapText({
+      buffer: context.buffer,
+      size: context.resolution,
+      text,
+      x: centerTextX(text, context.resolution),
+      y: 28,
+      color: color.parse(context.data.textColor || DEFAULT_DATA.textColor)
     });
   }
 });
 
-function centerTextX(text: string) {
-  return Math.max(0, Math.floor((64 - text.length * 6) / 2));
+function centerTextX(text: string, resolution: number) {
+  return Math.max(0, Math.floor((resolution - measureBitmapText(text)) / 2));
 }

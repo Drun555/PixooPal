@@ -143,6 +143,9 @@ async function runClockfaceBenchmarkExclusive(options: { durationMs: number }) {
           observed.pushSamples.map((sample) => sample.waitReadyMs).filter(isNumber)
         ),
         resetMs: summarize(observed.pushSamples.map((sample) => sample.resetMs).filter(isNumber)),
+        postSendDelayMs: summarize(
+          observed.pushSamples.map((sample) => sample.postSendDelayMs).filter(isNumber)
+        ),
         frameBytes: summarize(
           observed.pushSamples.map((sample) => sample.frameBytes).filter(isNumber)
         ),

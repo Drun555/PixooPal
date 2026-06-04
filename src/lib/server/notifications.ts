@@ -36,7 +36,7 @@ export function startNotification(text: string) {
   activeNotification = {
     text: safeText,
     startedAt: Date.now(),
-    durationMs: SLIDE_MS * 2 + HOLD_MS + scrollMs
+    durationMs: SLIDE_MS * 2 + HOLD_MS + scrollMs + 1000
   };
 }
 
@@ -216,7 +216,7 @@ function mixChannel(current: number, next: number, alpha: number) {
 
 function normalizeText(text: string) {
   const trimmed = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  return trimmed || 'PixooPal';
+  return trimmed || 'pixoopal';
 }
 
 function easeOut(value: number) {

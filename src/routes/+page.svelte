@@ -139,6 +139,7 @@
   let powered = true;
   let notificationText = '';
   let notificationBeep = true;
+  let previewSrc = '';
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
@@ -567,6 +568,8 @@
   }
 
   onMount(() => {
+    previewSrc = apiUrl('/api/v1/preview.mjpeg');
+
     refreshConfig()
       .catch(() => undefined)
       .finally(() => {
@@ -618,7 +621,7 @@
       <p class="connection-note">{pixooConnectionMessage}</p>
     </section>
 
-    <ClockfacePreview previewSrc={apiUrl('/api/v1/preview.mjpeg')} />
+    <ClockfacePreview {previewSrc} />
   </div>
 
   <div class="right-column">

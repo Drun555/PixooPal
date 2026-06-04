@@ -117,6 +117,7 @@ export type ClockfacePushBenchmarkSample = {
   previewPublishMs?: number;
   waitReadyMs?: number;
   resetMs?: number;
+  postSendDelayMs?: number;
   frameBytes?: number;
   base64Bytes?: number;
   size: number;
@@ -1101,6 +1102,7 @@ function collectPushSample(
     previewPublishMs: pushDetails?.previewPublishMs,
     waitReadyMs: pushDetails?.waitReadyMs,
     resetMs: pushDetails?.resetMs,
+    postSendDelayMs: pushDetails?.postSendDelayMs,
     frameBytes: pushDetails?.frameBytes,
     base64Bytes: pushDetails?.base64Bytes,
     size: frame.size,

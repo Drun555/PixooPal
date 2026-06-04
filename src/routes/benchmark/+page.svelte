@@ -87,6 +87,7 @@
       previewPublishMs: MetricSummary;
       waitReadyMs: MetricSummary;
       resetMs: MetricSummary;
+      postSendDelayMs: MetricSummary;
       frameBytes: MetricSummary;
       base64Bytes: MetricSummary;
       pushStartGapMs: MetricSummary;
@@ -434,6 +435,12 @@
                 <td>{formatMetric(clockfaceResult.summary.resetMs, 'avg')}</td>
                 <td>{formatMetric(clockfaceResult.summary.resetMs, 'p95')}</td>
                 <td>{formatMetric(clockfaceResult.summary.resetMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Post-send delay</td>
+                <td>{formatMetric(clockfaceResult.summary.postSendDelayMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.postSendDelayMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.postSendDelayMs, 'max')}</td>
               </tr>
               <tr>
                 <td>Push gap</td>

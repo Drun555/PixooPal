@@ -21,6 +21,7 @@ export type PixooFramePushMetrics = {
   resetMs: number;
   encodeMs: number;
   sendMs: number;
+  postSendDelayMs: number;
   frameBytes: number;
   base64Bytes: number;
 };
@@ -62,6 +63,7 @@ const PIXOO_DRAW_RECOVERY_DELAY_MS = 5_000;
 const PIXOO_FRAME_RESOLUTIONS = [16, 32, 64] as const;
 const HTTP_GIF_RESET_INTERVAL_FRAMES = 58;
 const PIXOO_CUSTOM_CHANNEL_INDEX = 3;
+const PIXOO_64_POST_SEND_DELAY_MS = 50;
 
 const reachabilityState = getPixooReachabilityState();
 const drawState = getPixooDrawState();
@@ -301,6 +303,12 @@ export async function pushPixelBuffer(size: number, buffer: Uint8Array): Promise
     PicData: picData
   });
   const sendMs = performance.now() - sendStarted;
+  const postSendDelayMs = resolution === 64 ? PIXOO_64_POST_SEND_DELAY_MS : 0;
+
+  if (postSendDelayMs > 0) {
+    debugLog('Waiting after Pixoo 64x64 frame send.', { postSendDelayMs });
+    await delay(postSendDelayMs);
+  }
 
   drawState.framesSinceReset += 1;
 
@@ -311,6 +319,7 @@ export async function pushPixelBuffer(size: number, buffer: Uint8Array): Promise
       resetMs,
       encodeMs,
       sendMs,
+      postSendDelayMs,
       frameBytes: expectedLength,
       base64Bytes: Buffer.byteLength(picData)
     }
