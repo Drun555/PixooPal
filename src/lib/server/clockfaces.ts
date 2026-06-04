@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Clockface, type ClockfaceInput, type ClockfaceInputValue } from '@pixoopal/clockface';
 import {
   applyNotificationOverlay,
-  isNotificationActive,
+  needsNotificationFrame,
   NOTIFICATION_FRAME_MS,
   startNotification
 } from './notifications';
@@ -18,6 +18,7 @@ import {
   setScreen,
   subscribePixooPower,
   subscribePixooRecovery,
+  getPixooFrameSettleMs,
   type PixooFramePushMetrics
 } from './pixoo';
 import { publishPixooPalEvent, publishPreviewFrame } from './previewStream';
@@ -1333,7 +1334,7 @@ function setFlatPixel(
 async function getDisplayBuffer(clockface: Clockface) {
   const frame = (clockface as Clockface & ClockfaceFrameProvider).getFrame?.() ?? clockface.getFrame();
 
-  if (!isNotificationActive()) {
+  if (!needsNotificationFrame()) {
     return frame;
   }
 
@@ -1370,13 +1371,22 @@ function scaleFlatBuffer(source: Uint8Array, sourceSize: number, targetSize: num
 }
 
 function getFrameInterval(clockface: Clockface) {
-  if (isNotificationActive()) {
-    return clockface.updateIntervalMs > 0
-      ? Math.min(clockface.updateIntervalMs, NOTIFICATION_FRAME_MS)
-      : NOTIFICATION_FRAME_MS;
+  const settleMs = getPixooFrameSettleMs(clockface.resolution);
+
+  if (needsNotificationFrame()) {
+    const notificationInterval =
+      clockface.updateIntervalMs > 0
+        ? Math.min(clockface.updateIntervalMs, NOTIFICATION_FRAME_MS)
+        : NOTIFICATION_FRAME_MS;
+
+    return notificationInterval + settleMs;
   }
 
-  return clockface.updateIntervalMs;
+  if (clockface.updateIntervalMs === 0) {
+    return 0;
+  }
+
+  return clockface.updateIntervalMs + settleMs;
 }
 
 function getManifestModulePath(manifestPath: string, manifest: ClockfaceManifest) {

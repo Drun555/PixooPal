@@ -63,7 +63,7 @@ const PIXOO_DRAW_RECOVERY_DELAY_MS = 5_000;
 const PIXOO_FRAME_RESOLUTIONS = [16, 32, 64] as const;
 const HTTP_GIF_RESET_INTERVAL_FRAMES = 58;
 const PIXOO_CUSTOM_CHANNEL_INDEX = 3;
-const PIXOO_64_POST_SEND_DELAY_MS = 50;
+export const PIXOO_64_FRAME_SETTLE_MS = 50;
 
 const reachabilityState = getPixooReachabilityState();
 const drawState = getPixooDrawState();
@@ -303,10 +303,9 @@ export async function pushPixelBuffer(size: number, buffer: Uint8Array): Promise
     PicData: picData
   });
   const sendMs = performance.now() - sendStarted;
-  const postSendDelayMs = resolution === 64 ? PIXOO_64_POST_SEND_DELAY_MS : 0;
+  const postSendDelayMs = getPixooFrameSettleMs(resolution);
 
   if (postSendDelayMs > 0) {
-    debugLog('Waiting after Pixoo 64x64 frame send.', { postSendDelayMs });
     await delay(postSendDelayMs);
   }
 
@@ -324,6 +323,10 @@ export async function pushPixelBuffer(size: number, buffer: Uint8Array): Promise
       base64Bytes: Buffer.byteLength(picData)
     }
   };
+}
+
+export function getPixooFrameSettleMs(size: number) {
+  return normalizePixooFrameResolution(size) === 64 ? PIXOO_64_FRAME_SETTLE_MS : 0;
 }
 
 function safeParseJson(text: string) {

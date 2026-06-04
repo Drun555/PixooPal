@@ -73,8 +73,10 @@ export const GET: RequestHandler = async () => {
 
   return new Response(stream, {
     headers: {
-      'cache-control': 'no-store',
-      'content-type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`
+      'cache-control': 'no-cache, no-store, must-revalidate',
+      'content-type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
+      'pragma': 'no-cache',
+      'x-accel-buffering': 'no'
     }
   });
 };

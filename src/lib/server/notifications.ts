@@ -22,6 +22,7 @@ type NotificationState = {
   text: string;
   startedAt: number;
   durationMs: number;
+  cleanupFramePending: boolean;
 };
 
 let activeNotification: NotificationState | undefined;
@@ -36,11 +37,12 @@ export function startNotification(text: string) {
   activeNotification = {
     text: safeText,
     startedAt: Date.now(),
-    durationMs: SLIDE_MS * 2 + HOLD_MS + scrollMs + 1000
+    durationMs: SLIDE_MS * 2 + HOLD_MS + scrollMs + 1000,
+    cleanupFramePending: true
   };
 }
 
-export function isNotificationActive() {
+export function needsNotificationFrame() {
   return getNotificationState(Date.now()) !== 'idle';
 }
 
@@ -49,7 +51,7 @@ export async function applyNotificationOverlay(size: number, source: Uint8Array)
   const progress = getNotificationProgress(now);
 
   if (!progress) {
-    clearExpiredNotification(now);
+    markNotificationCleanupFrameRendered(now);
     return source;
   }
 
@@ -92,7 +94,7 @@ function getNotificationState(now: number) {
     return 'visible';
   }
 
-  if (elapsedMs < activeNotification.durationMs + NOTIFICATION_CLEANUP_MS) {
+  if (elapsedMs < activeNotification.durationMs + NOTIFICATION_CLEANUP_MS || activeNotification.cleanupFramePending) {
     return 'cleanup';
   }
 
@@ -100,7 +102,17 @@ function getNotificationState(now: number) {
   return 'idle';
 }
 
-function clearExpiredNotification(now: number) {
+function markNotificationCleanupFrameRendered(now: number) {
+  const state = getNotificationState(now);
+
+  if (!activeNotification) {
+    return;
+  }
+
+  if (state === 'cleanup') {
+    activeNotification.cleanupFramePending = false;
+  }
+
   if (getNotificationState(now) === 'idle') {
     activeNotification = undefined;
   }
