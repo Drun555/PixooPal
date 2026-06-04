@@ -88,7 +88,7 @@ export const GET: RequestHandler = async () => {
 
   return new Response(stream, {
     headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, no-transform, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0',
       'Content-Type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
