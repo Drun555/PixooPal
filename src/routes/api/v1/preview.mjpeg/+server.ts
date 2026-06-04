@@ -9,14 +9,20 @@ import {
 
 const BOUNDARY = 'pixoopal-preview';
 const encoder = new TextEncoder();
+const MIN_FRAME_INTERVAL_MS = 100;
 
 export const GET: RequestHandler = async () => {
   let closed = false;
   let unsubscribe: (() => void) | undefined;
+  let lastSentAt = 0;
+  let pendingFrame: PreviewFrame | undefined;
+  let pendingTimer: ReturnType<typeof setTimeout> | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const sendFrame = async (frame: PreviewFrame) => {
+        lastSentAt = Date.now();
+
         try {
           const jpeg = await previewPayloadToJpeg(frame.preview);
 
@@ -36,11 +42,31 @@ export const GET: RequestHandler = async () => {
         }
       };
 
-      sendFrame(getLatestPreviewFrame() ?? getEmptyPreviewFrame());
-      unsubscribe = subscribePreviewFrames(sendFrame);
+      const scheduleFrame = (frame: PreviewFrame) => {
+        pendingFrame = frame;
+
+        if (closed || pendingTimer) {
+          return;
+        }
+
+        const remaining = Math.max(0, MIN_FRAME_INTERVAL_MS - (Date.now() - lastSentAt));
+        pendingTimer = setTimeout(() => {
+          const nextFrame = pendingFrame;
+          pendingFrame = undefined;
+          pendingTimer = undefined;
+
+          if (!closed && nextFrame) {
+            sendFrame(nextFrame);
+          }
+        }, remaining);
+      };
+
+      scheduleFrame(getLatestPreviewFrame() ?? getEmptyPreviewFrame());
+      unsubscribe = subscribePreviewFrames(scheduleFrame);
     },
     cancel() {
       closed = true;
+      clearTimeout(pendingTimer);
       unsubscribe?.();
     }
   });

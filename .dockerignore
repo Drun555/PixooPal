@@ -3,6 +3,7 @@
 .svelte-kit
 build
 data
+pixoopal-data
 node_modules
 .env
 .env.*

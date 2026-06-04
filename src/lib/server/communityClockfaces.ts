@@ -32,8 +32,6 @@ export type CommunityClockfaceSourceFile = {
 
 export type CommunityClockfaceDetail = CommunityClockfaceCatalogItem & {
   files: CommunityClockfaceSourceFile[];
-  sourceCode: string;
-  highlightedSource: string;
 };
 
 export type InstalledCommunityClockface = {
@@ -113,9 +111,7 @@ export async function getCommunityClockfaceDetail(id: string): Promise<Community
 
   return {
     ...clockface,
-    files,
-    sourceCode: primaryCodeFile?.sourceCode ?? '',
-    highlightedSource: primaryCodeFile?.highlightedSource ?? ''
+    files
   };
 }
 

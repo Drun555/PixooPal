@@ -134,6 +134,21 @@ async function runClockfaceBenchmarkExclusive(options: { durationMs: number }) {
         ),
         queueWaitMs: summarize(observed.pushSamples.map((sample) => sample.queueWaitMs)),
         pushDurationMs: summarize(observed.pushSamples.map((sample) => sample.pushDurationMs)),
+        encodeMs: summarize(observed.pushSamples.map((sample) => sample.encodeMs).filter(isNumber)),
+        sendMs: summarize(observed.pushSamples.map((sample) => sample.sendMs).filter(isNumber)),
+        previewPublishMs: summarize(
+          observed.pushSamples.map((sample) => sample.previewPublishMs).filter(isNumber)
+        ),
+        waitReadyMs: summarize(
+          observed.pushSamples.map((sample) => sample.waitReadyMs).filter(isNumber)
+        ),
+        resetMs: summarize(observed.pushSamples.map((sample) => sample.resetMs).filter(isNumber)),
+        frameBytes: summarize(
+          observed.pushSamples.map((sample) => sample.frameBytes).filter(isNumber)
+        ),
+        base64Bytes: summarize(
+          observed.pushSamples.map((sample) => sample.base64Bytes).filter(isNumber)
+        ),
         pushStartGapMs: summarize(
           observed.pushSamples.map((sample) => sample.pushStartGapMs).filter(isNumber)
         ),
@@ -268,7 +283,7 @@ function clampInt(value: unknown, fallback: number, min: number, max: number) {
 }
 
 function generateFrame(size: number, frameIndex: number) {
-  const buffer = new Array(size * size * 3);
+  const buffer = new Uint8Array(size * size * 3);
   const center = (size - 1) / 2;
 
   for (let y = 0; y < size; y += 1) {

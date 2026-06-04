@@ -1,7 +1,0 @@
-{
-  "entry": "./BundledRotatingCube.ts",
-  "name": "Bundled Rotating Cube",
-  "description": "A rotating pseudo-3D cube with configurable face and border colors.",
-  "picture": "./picture.png",
-  "author": "Drun555"
-}

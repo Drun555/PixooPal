@@ -44,7 +44,7 @@ export function isNotificationActive() {
   return getNotificationState(Date.now()) !== 'idle';
 }
 
-export async function applyNotificationOverlay(size: number, source: number[]) {
+export async function applyNotificationOverlay(size: number, source: Uint8Array) {
   const now = Date.now();
   const progress = getNotificationProgress(now);
 
@@ -53,7 +53,7 @@ export async function applyNotificationOverlay(size: number, source: number[]) {
     return source;
   }
 
-  const output = source.slice();
+  const output = Uint8Array.from(source);
   const textWidth = measureBitmapText(progress.text);
   const popupY = getPopupY(progress.elapsedMs, progress.durationMs);
   const textX = getTextX(textWidth, progress.elapsedMs, progress.durationMs);
@@ -137,7 +137,7 @@ function getTextX(textWidth: number, elapsedMs: number, durationMs: number) {
   return left - Math.round(distance * pingPong);
 }
 
-function drawPopup(buffer: number[], size: number, top: number) {
+function drawPopup(buffer: Uint8Array, size: number, top: number) {
   const left = POPUP_LEFT;
   const right = size - POPUP_RIGHT_INSET - 1;
   const bottom = top + POPUP_HEIGHT - 1;
@@ -156,7 +156,7 @@ function drawPopup(buffer: number[], size: number, top: number) {
 }
 
 async function drawNotificationText(
-  buffer: number[],
+  buffer: Uint8Array,
   size: number,
   text: string,
   startX: number,
@@ -193,7 +193,7 @@ function getAvailableTextWidth() {
 }
 
 function blendFlatPixel(
-  buffer: number[],
+  buffer: Uint8Array,
   size: number,
   x: number,
   y: number,

@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises';
+import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { Clockface, type ClockfaceInput, type ClockfaceInputValue } from '@pixoopal/clockface';
 import {
@@ -16,7 +17,8 @@ import {
   setCustomChannel,
   setScreen,
   subscribePixooPower,
-  subscribePixooRecovery
+  subscribePixooRecovery,
+  type PixooFramePushMetrics
 } from './pixoo';
 import { publishPixooPalEvent, publishPreviewFrame } from './previewStream';
 import { fileClockfacePersistenceStore } from './clockfacePersistence';
@@ -45,7 +47,7 @@ type ClockfaceModule = {
 type ClockfaceFrameProvider = {
   getFrame?: () => {
     size: number;
-    buffer: number[];
+    buffer: Uint8Array;
   };
 };
 
@@ -85,7 +87,7 @@ type ClockfaceRunner = {
 
 type ClockfaceFrame = {
   activeId: string;
-  buffer: number[];
+  buffer: Uint8Array;
   enqueuedAt: number;
   frameId: number;
   scheduledDelayMs: number | null;
@@ -110,9 +112,20 @@ export type ClockfacePushBenchmarkSample = {
   pendingAfterShift: number;
   pushStartGapMs: number | null;
   pushDurationMs: number;
+  encodeMs?: number;
+  sendMs?: number;
+  previewPublishMs?: number;
+  waitReadyMs?: number;
+  resetMs?: number;
+  frameBytes?: number;
+  base64Bytes?: number;
   size: number;
   updateIntervalMs: number;
   startedAtMs: number;
+};
+
+type ClockfaceFramePushDetails = PixooFramePushMetrics & {
+  previewPublishMs: number;
 };
 
 export type ClockfaceSchedulerBenchmark = {
@@ -787,7 +800,7 @@ async function renderRunnerFrame(runner: ClockfaceRunner, clockface: Clockface) 
     const pendingBeforePush = runner.pendingFrames.length;
     runner.pendingFrames.push({
       activeId: runner.id,
-      buffer: [...display.buffer],
+      buffer: Uint8Array.from(display.buffer),
       enqueuedAt: Date.now(),
       frameId,
       scheduledDelayMs,
@@ -857,13 +870,14 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
       const pushStartedAt = Date.now();
       const previousPushStartedAt = runner.lastPushStartedAt;
       runner.lastPushStartedAt = pushStartedAt;
-      await enqueueFramePush(runner, frame);
+      const pushDetails = await enqueueFramePush(runner, frame);
       runner.nextPushAt = pushStartedAt + frame.updateIntervalMs;
       collectPushSample(runner, frame, {
         pendingAfterShift,
         pushStartedAt,
         previousPushStartedAt,
-        pushDurationMs: Date.now() - pushStartedAt
+        pushDurationMs: Date.now() - pushStartedAt,
+        pushDetails
       });
 
       debugLog('Frame push completed.', {
@@ -889,34 +903,54 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
   }
 }
 
-async function enqueueFramePush(runner: ClockfaceRunner, frame: ClockfaceFrame) {
-  clockfaceRuntimeState.pushQueue = clockfaceRuntimeState.pushQueue?.then(
+async function enqueueFramePush(
+  runner: ClockfaceRunner,
+  frame: ClockfaceFrame
+): Promise<ClockfaceFramePushDetails | undefined> {
+  const push = clockfaceRuntimeState.pushQueue?.then(
     () => pushFrame(runner, frame),
     () => pushFrame(runner, frame)
   );
+  clockfaceRuntimeState.pushQueue = push?.then(
+    () => undefined,
+    () => undefined
+  );
 
-  await clockfaceRuntimeState.pushQueue;
+  return push;
 }
 
-async function pushFrame(runner: ClockfaceRunner, frame: ClockfaceFrame) {
+async function pushFrame(
+  runner: ClockfaceRunner,
+  frame: ClockfaceFrame
+): Promise<ClockfaceFramePushDetails | undefined> {
   if (!isRunnerActive(runner) || isPixooPalOff()) {
     return;
   }
 
-  await pushPixelBuffer(frame.size, frame.buffer);
+  const pushResult = await pushPixelBuffer(frame.size, frame.buffer);
 
   if (!isRunnerActive(runner)) {
-    return;
+    return {
+      ...pushResult.metrics,
+      previewPublishMs: 0
+    };
   }
 
-  // publishPreviewFrame({
-  //   activeId: frame.activeId,
-  //   updateIntervalMs: frame.updateIntervalMs,
-  //   preview: {
-  //     size: frame.size,
-  //     buffer: frame.buffer
-  //   }
-  // });
+  const previewStarted = performance.now();
+  publishPreviewFrame({
+    activeId: frame.activeId,
+    updateIntervalMs: frame.updateIntervalMs,
+    preview: {
+      size: frame.size,
+      buffer: frame.buffer
+    }
+  });
+  const previewPublishMs = roundPerformanceMs(performance.now() - previewStarted);
+
+  return {
+    ...pushResult.metrics,
+    previewPublishMs
+  };
 }
 
 async function waitForRunnerPushSlot(runner: ClockfaceRunner) {
@@ -1032,11 +1066,13 @@ function collectPushSample(
     pendingAfterShift,
     previousPushStartedAt,
     pushDurationMs,
+    pushDetails,
     pushStartedAt
   }: {
     pendingAfterShift: number;
     previousPushStartedAt?: number;
     pushDurationMs: number;
+    pushDetails?: ClockfaceFramePushDetails;
     pushStartedAt: number;
   }
 ) {
@@ -1060,10 +1096,21 @@ function collectPushSample(
     pendingAfterShift,
     pushStartGapMs,
     pushDurationMs,
+    encodeMs: pushDetails?.encodeMs,
+    sendMs: pushDetails?.sendMs,
+    previewPublishMs: pushDetails?.previewPublishMs,
+    waitReadyMs: pushDetails?.waitReadyMs,
+    resetMs: pushDetails?.resetMs,
+    frameBytes: pushDetails?.frameBytes,
+    base64Bytes: pushDetails?.base64Bytes,
     size: frame.size,
     updateIntervalMs: frame.updateIntervalMs,
     startedAtMs: pushStartedAt - collector.startedAt
   });
+}
+
+function roundPerformanceMs(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function delay(ms: number) {
@@ -1184,14 +1231,14 @@ function publishBlackPreview() {
     updateIntervalMs: 0,
     preview: {
       size,
-      buffer: new Array(size * size * 3).fill(0)
+      buffer: new Uint8Array(size * size * 3)
     }
   });
 }
 
 function getServiceClockfacePreview() {
   const size = PIXOO_NATIVE_SIZE;
-  const buffer = new Array(size * size * 3).fill(0);
+  const buffer = new Uint8Array(size * size * 3);
 
   drawServiceBackground(buffer, size);
   drawGear(buffer, size, Math.floor(size / 2), Math.floor(size / 2), 21, 10);
@@ -1202,7 +1249,7 @@ function getServiceClockfacePreview() {
   };
 }
 
-function drawServiceBackground(buffer: number[], size: number) {
+function drawServiceBackground(buffer: Uint8Array, size: number) {
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
       const shade = 8 + Math.round((y / (size - 1)) * 16);
@@ -1212,7 +1259,7 @@ function drawServiceBackground(buffer: number[], size: number) {
 }
 
 function drawGear(
-  buffer: number[],
+  buffer: Uint8Array,
   size: number,
   centerX: number,
   centerY: number,
@@ -1263,7 +1310,7 @@ function drawGear(
 }
 
 function setFlatPixel(
-  buffer: number[],
+  buffer: Uint8Array,
   size: number,
   x: number,
   y: number,
@@ -1282,10 +1329,7 @@ function setFlatPixel(
 }
 
 async function getDisplayBuffer(clockface: Clockface) {
-  const frame = (clockface as Clockface & ClockfaceFrameProvider).getFrame?.() ?? {
-    size: clockface.resolution,
-    buffer: clockface.flatBuffer
-  };
+  const frame = (clockface as Clockface & ClockfaceFrameProvider).getFrame?.() ?? clockface.getFrame();
 
   if (!isNotificationActive()) {
     return frame;
@@ -1303,8 +1347,8 @@ async function getDisplayBuffer(clockface: Clockface) {
   };
 }
 
-function scaleFlatBuffer(source: number[], sourceSize: number, targetSize: number) {
-  const output = new Array(targetSize * targetSize * 3).fill(0);
+function scaleFlatBuffer(source: Uint8Array, sourceSize: number, targetSize: number) {
+  const output = new Uint8Array(targetSize * targetSize * 3);
 
   for (let y = 0; y < targetSize; y += 1) {
     const sourceY = Math.min(sourceSize - 1, Math.floor((y / targetSize) * sourceSize));

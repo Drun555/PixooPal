@@ -32,11 +32,6 @@
     [key: string]: unknown;
   };
 
-  type PreviewPayload = {
-    size: number;
-    buffer: number[];
-  };
-
   type StatusPayload = {
     ok: boolean;
     reachable: boolean;
@@ -103,12 +98,6 @@
 
   type PixooPalEvent =
     | {
-        type: 'preview';
-        activeId: string;
-        updateIntervalMs: number;
-        preview: PreviewPayload;
-      }
-    | {
         type: 'clockface_changed';
         activeId: string;
         clockface: ClockfaceView | null;
@@ -128,8 +117,6 @@
         message: string;
         beep: boolean;
       };
-
-  const PREVIEW_SIZE = 64;
 
   let status: StatusPayload | null = null;
   let clockfaces: ClockfaceView[] = [];
@@ -152,7 +139,6 @@
   let powered = true;
   let notificationText = '';
   let notificationBeep = true;
-  let preview = createEmptyPreview();
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
@@ -160,13 +146,6 @@
   $: pixooAddressConfigured = Boolean(status?.config?.pixooHost || pixooAddress);
   $: pixooConnectionLabel = getPixooConnectionLabel(status);
   $: pixooConnectionMessage = getPixooConnectionMessage(status);
-  function createEmptyPreview(): PreviewPayload {
-    return {
-      size: PREVIEW_SIZE,
-      buffer: new Array(PREVIEW_SIZE * PREVIEW_SIZE * 3).fill(0)
-    };
-  }
-
   function syncFromSettings(settings: PixooSettings | null) {
     if (!settings) {
       return;
@@ -211,14 +190,6 @@
     }
 
     pixooAddress = config.pixooAddress || config.pixooHost || pixooAddress;
-  }
-
-  function syncPreview(nextPreview?: PreviewPayload) {
-    if (!nextPreview || !Array.isArray(nextPreview.buffer)) {
-      return;
-    }
-
-    preview = nextPreview;
   }
 
   function syncClockfaces(body: ClockfacesPayload) {
@@ -317,48 +288,6 @@
     syncClockfaces(body);
   }
 
-  async function refreshPreviewSnapshot() {
-    const response = await fetch(apiUrl('/api/v1/preview.jpg'), {
-      cache: 'no-store'
-    });
-
-    if (!response.ok) {
-      return;
-    }
-
-    const blob = await response.blob();
-
-    if (typeof createImageBitmap !== 'function') {
-      return;
-    }
-
-    const bitmap = await createImageBitmap(blob);
-    const snapshotCanvas = document.createElement('canvas');
-    snapshotCanvas.width = PREVIEW_SIZE;
-    snapshotCanvas.height = PREVIEW_SIZE;
-    const context = snapshotCanvas.getContext('2d');
-
-    if (!context) {
-      bitmap.close();
-      return;
-    }
-
-    context.drawImage(bitmap, 0, 0, PREVIEW_SIZE, PREVIEW_SIZE);
-    bitmap.close();
-
-    const imageData = context.getImageData(0, 0, PREVIEW_SIZE, PREVIEW_SIZE);
-    const buffer: number[] = [];
-
-    for (let index = 0; index < imageData.data.length; index += 4) {
-      buffer.push(imageData.data[index] ?? 0, imageData.data[index + 1] ?? 0, imageData.data[index + 2] ?? 0);
-    }
-
-    syncPreview({
-      size: PREVIEW_SIZE,
-      buffer
-    });
-  }
-
   function connectPreviewStream() {
     if (typeof WebSocket === 'undefined') {
       return;
@@ -376,11 +305,6 @@
 
     socket.onmessage = (event) => {
       const payload = parsePixooPalEvent(event.data);
-
-      if (payload?.type === 'preview' && payload.activeId === activeClockfaceId) {
-        syncPreview(payload.preview);
-        return;
-      }
 
       if (payload?.type === 'clockface_changed') {
         activeClockfaceId = payload.activeId;
@@ -650,7 +574,6 @@
           .catch(() => undefined)
           .then(() => refreshStatus())
           .then(() => refreshClockfaces())
-          .then(() => refreshPreviewSnapshot())
           .catch(() => undefined);
         connectPreviewStream();
       });
@@ -695,7 +618,7 @@
       <p class="connection-note">{pixooConnectionMessage}</p>
     </section>
 
-    <ClockfacePreview {preview} />
+    <ClockfacePreview previewSrc={apiUrl('/api/v1/preview.mjpeg')} />
   </div>
 
   <div class="right-column">
@@ -1498,7 +1421,7 @@
     }
 
     .clockface-picker-row {
-      grid-template-columns: 1fr;
+      grid-template-columns: 1fr auto;
     }
 
     .notification-form {

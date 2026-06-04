@@ -2,7 +2,7 @@ import sharp from 'sharp';
 
 export type PreviewPayload = {
   size: number;
-  buffer: number[];
+  buffer: Uint8Array;
 };
 
 export type PreviewFrame = {
@@ -12,7 +12,6 @@ export type PreviewFrame = {
 };
 
 export type PixooPalEvent =
-  | ({ type: 'preview' } & PreviewFrame)
   | { type: 'clockface_changed'; activeId: string; clockface: unknown }
   | { type: 'clockface_data_changed'; activeId: string; data: Record<string, string> }
   | { type: 'device_status'; reachable: boolean; status: unknown }
@@ -41,21 +40,19 @@ const JPEG_PREVIEW_SCALE = 8;
 const previewStreamState = getPreviewStreamState();
 
 export function publishPreviewFrame(frame: PreviewFrame) {
+  const expectedLength = frame.preview.size * frame.preview.size * 3;
+  const source = frame.preview.buffer.subarray(0, expectedLength);
+
   previewStreamState.latestPreview = {
     ...frame,
     preview: {
       size: frame.preview.size,
-      buffer: [...frame.preview.buffer]
+      buffer: Uint8Array.from(source)
     }
   };
 
-  publishPixooPalEvent({
-    type: 'preview',
-    ...frame
-  });
-
   for (const listener of previewStreamState.previewFrameListeners) {
-    listener(frame);
+    listener(previewStreamState.latestPreview);
   }
 }
 
@@ -89,7 +86,7 @@ export function getEmptyPreviewFrame(): PreviewFrame {
     updateIntervalMs: 0,
     preview: {
       size: 64,
-      buffer: new Array(64 * 64 * 3).fill(0)
+      buffer: new Uint8Array(64 * 64 * 3)
     }
   };
 }
@@ -113,13 +110,15 @@ export async function getLatestPreviewJpeg() {
 export async function previewPayloadToJpeg(preview: PreviewPayload) {
   const size = preview.size;
   const expectedLength = size * size * 3;
-  const source = preview.buffer.slice(0, expectedLength);
+  let buffer: Buffer;
 
-  while (source.length < expectedLength) {
-    source.push(0);
+  if (preview.buffer.length >= expectedLength) {
+    buffer = Buffer.from(preview.buffer.buffer, preview.buffer.byteOffset, expectedLength);
+  } else {
+    const padded = new Uint8Array(expectedLength);
+    padded.set(preview.buffer);
+    buffer = Buffer.from(padded.buffer);
   }
-
-  const buffer = Buffer.from(source);
 
   return sharp(buffer, {
     raw: {

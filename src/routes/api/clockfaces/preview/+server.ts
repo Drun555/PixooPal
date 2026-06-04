@@ -8,9 +8,15 @@ function errorResponse(error: unknown, status = 500) {
 
 export const GET: RequestHandler = async () => {
   try {
+    const preview = await getActiveClockfacePreview();
+
     return json({
       ok: true,
-      ...(await getActiveClockfacePreview())
+      ...preview,
+      preview: {
+        ...preview.preview,
+        buffer: Array.from(preview.preview.buffer)
+      }
     });
   } catch (error) {
     return errorResponse(error);

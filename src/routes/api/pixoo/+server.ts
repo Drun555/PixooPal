@@ -5,13 +5,7 @@ import {
   setPixooScreenWithServiceClockface,
   showNotification
 } from '$lib/server/clockfaces';
-import {
-  getEmptyPreviewBuffer,
-  getPixooRecoveryState,
-  getPixooSettings,
-  setBrightness,
-  setWhiteBalance
-} from '$lib/server/pixoo';
+import { getPixooRecoveryState, getPixooSettings, setBrightness, setWhiteBalance } from '$lib/server/pixoo';
 
 function errorResponse(error: unknown, status = 500) {
   const message = error instanceof Error ? error.message : 'Unknown Pixoo error';
@@ -28,7 +22,6 @@ export const GET: RequestHandler = async () => {
       config,
       settings: null,
       recovery: getPixooRecoveryState(),
-      preview: getEmptyPreviewBuffer(),
       message: 'Pixoo address is not configured.'
     });
   }
@@ -41,8 +34,7 @@ export const GET: RequestHandler = async () => {
       reachable: true,
       config,
       settings,
-      recovery: getPixooRecoveryState(),
-      preview: getEmptyPreviewBuffer()
+      recovery: getPixooRecoveryState()
     });
   } catch (error) {
     return json({
@@ -51,7 +43,6 @@ export const GET: RequestHandler = async () => {
       config,
       settings: null,
       recovery: getPixooRecoveryState(),
-      preview: getEmptyPreviewBuffer(),
       message: error instanceof Error ? error.message : 'Pixoo is not reachable.'
     });
   }
@@ -77,7 +68,7 @@ export const POST: RequestHandler = async ({ request }) => {
       return errorResponse(new Error('Unsupported Pixoo action.'), 400);
     }
 
-    return json({ ok: true, result, preview: getEmptyPreviewBuffer() });
+    return json({ ok: true, result });
   } catch (error) {
     return errorResponse(error);
   }

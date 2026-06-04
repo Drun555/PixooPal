@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { performance } from 'node:perf_hooks';
 import { getRuntimeConfig, requirePixooHost } from './config';
 import { isPixooPalOff } from './control';
 import { debugLog } from './debug';
@@ -13,6 +14,20 @@ export type PixooCommandSample = {
   ok: boolean;
   error?: string;
   startedAtMs: number;
+};
+
+export type PixooFramePushMetrics = {
+  waitReadyMs: number;
+  resetMs: number;
+  encodeMs: number;
+  sendMs: number;
+  frameBytes: number;
+  base64Bytes: number;
+};
+
+export type PixooFramePushResult = {
+  response: unknown;
+  metrics: PixooFramePushMetrics;
 };
 
 export type PixooRecoveryState = {
@@ -174,7 +189,7 @@ export async function getPixooSettingsSnapshot() {
 export function getEmptyPreviewBuffer() {
   return {
     size: PIXOO_SIZE,
-    buffer: new Array(PIXOO_SIZE * PIXOO_SIZE * 3).fill(0) as number[]
+    buffer: new Uint8Array(PIXOO_SIZE * PIXOO_SIZE * 3)
   };
 }
 
@@ -236,7 +251,7 @@ export async function playBuzzer() {
   });
 }
 
-export async function pushPixelBuffer(size: number, buffer: number[]) {
+export async function pushPixelBuffer(size: number, buffer: Uint8Array): Promise<PixooFramePushResult> {
   if (isPixooPalOff()) {
     throw new Error('PixooPal is paused.');
   }
@@ -248,16 +263,21 @@ export async function pushPixelBuffer(size: number, buffer: number[]) {
     throw new Error(`Pixel buffer is too small for ${resolution}x${resolution}.`);
   }
 
+  const waitStarted = performance.now();
   await waitForPixooDrawReady();
+  const waitReadyMs = performance.now() - waitStarted;
+  let resetMs = 0;
 
   if (shouldResetHttpGifId(resolution)) {
     debugLog('Resetting Pixoo HTTP GIF id.', {
       resolution,
       framesSinceReset: drawState.framesSinceReset
     });
+    const resetStarted = performance.now();
     await sendPixooCommand({
       Command: 'Draw/ResetHttpGifId'
     });
+    resetMs = performance.now() - resetStarted;
   }
 
   const picId = drawState.framesSinceReset + 1;
@@ -267,6 +287,10 @@ export async function pushPixelBuffer(size: number, buffer: number[]) {
     framesSinceReset: drawState.framesSinceReset,
     expectedLength
   });
+  const encodeStarted = performance.now();
+  const picData = encodeFrameData(buffer, expectedLength);
+  const encodeMs = performance.now() - encodeStarted;
+  const sendStarted = performance.now();
   const response = await sendPixooCommand({
     Command: 'Draw/SendHttpGif',
     PicNum: 1,
@@ -274,12 +298,23 @@ export async function pushPixelBuffer(size: number, buffer: number[]) {
     PicOffset: 0,
     PicID: picId,
     PicSpeed: 1000,
-    PicData: encodeFrameData(buffer, expectedLength)
+    PicData: picData
   });
+  const sendMs = performance.now() - sendStarted;
 
   drawState.framesSinceReset += 1;
 
-  return response;
+  return {
+    response,
+    metrics: {
+      waitReadyMs,
+      resetMs,
+      encodeMs,
+      sendMs,
+      frameBytes: expectedLength,
+      base64Bytes: Buffer.byteLength(picData)
+    }
+  };
 }
 
 function safeParseJson(text: string) {
@@ -417,18 +452,8 @@ export function parseHexColor(hex: string): RGB {
   ];
 }
 
-function clampColor(value: unknown) {
-  const color = Number(value);
-
-  if (!Number.isFinite(color)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(255, Math.round(color)));
-}
-
-function encodeFrameData(buffer: number[], expectedLength: number) {
-  return Buffer.from(buffer.slice(0, expectedLength).map(clampColor)).toString('base64');
+function encodeFrameData(buffer: Uint8Array, expectedLength: number) {
+  return Buffer.from(buffer.buffer, buffer.byteOffset, expectedLength).toString('base64');
 }
 
 function normalizePixooFrameResolution(size: number) {

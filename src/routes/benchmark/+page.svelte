@@ -82,6 +82,13 @@
       renderStartGapMs: MetricSummary;
       queueWaitMs: MetricSummary;
       pushDurationMs: MetricSummary;
+      encodeMs: MetricSummary;
+      sendMs: MetricSummary;
+      previewPublishMs: MetricSummary;
+      waitReadyMs: MetricSummary;
+      resetMs: MetricSummary;
+      frameBytes: MetricSummary;
+      base64Bytes: MetricSummary;
       pushStartGapMs: MetricSummary;
       counts: {
         renderedFrames: number;
@@ -397,6 +404,36 @@
                 <td>{formatMetric(clockfaceResult.summary.pushDurationMs, 'avg')}</td>
                 <td>{formatMetric(clockfaceResult.summary.pushDurationMs, 'p95')}</td>
                 <td>{formatMetric(clockfaceResult.summary.pushDurationMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Encode</td>
+                <td>{formatMetric(clockfaceResult.summary.encodeMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.encodeMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.encodeMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Send</td>
+                <td>{formatMetric(clockfaceResult.summary.sendMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.sendMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.sendMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Preview publish</td>
+                <td>{formatMetric(clockfaceResult.summary.previewPublishMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.previewPublishMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.previewPublishMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Wait ready</td>
+                <td>{formatMetric(clockfaceResult.summary.waitReadyMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.waitReadyMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.waitReadyMs, 'max')}</td>
+              </tr>
+              <tr>
+                <td>Reset GIF</td>
+                <td>{formatMetric(clockfaceResult.summary.resetMs, 'avg')}</td>
+                <td>{formatMetric(clockfaceResult.summary.resetMs, 'p95')}</td>
+                <td>{formatMetric(clockfaceResult.summary.resetMs, 'max')}</td>
               </tr>
               <tr>
                 <td>Push gap</td>
