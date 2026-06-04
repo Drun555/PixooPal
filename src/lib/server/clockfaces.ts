@@ -909,14 +909,14 @@ async function pushFrame(runner: ClockfaceRunner, frame: ClockfaceFrame) {
     return;
   }
 
-  publishPreviewFrame({
-    activeId: frame.activeId,
-    updateIntervalMs: frame.updateIntervalMs,
-    preview: {
-      size: frame.size,
-      buffer: frame.buffer
-    }
-  });
+  // publishPreviewFrame({
+  //   activeId: frame.activeId,
+  //   updateIntervalMs: frame.updateIntervalMs,
+  //   preview: {
+  //     size: frame.size,
+  //     buffer: frame.buffer
+  //   }
+  // });
 }
 
 async function waitForRunnerPushSlot(runner: ClockfaceRunner) {
