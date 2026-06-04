@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { getRuntimeConfig, requirePixooHost } from './config';
 import { isPixooPalOff } from './control';
+import { debugLog } from './debug';
 
 export type RGB = [number, number, number];
 type PixooCommand = Record<string, unknown> & { Command: string };
@@ -23,6 +24,7 @@ type PixooReachabilityState = {
   screenOn: boolean;
   screenObserved: boolean;
   drawCooldownUntil: number;
+  settings: unknown | null;
   powerListeners: Set<PixooPowerListener>;
   recoveryListeners: Set<PixooRecoveryListener>;
 };
@@ -59,6 +61,7 @@ function withTimeout(ms: number) {
 export async function sendPixooCommand(command: PixooCommand) {
   const config = requirePixooHost();
   const { controller, timeout } = withTimeout(5000);
+  const startedAt = Date.now();
 
   try {
     const response = await fetch(config.pixooPostUrl, {
@@ -79,9 +82,18 @@ export async function sendPixooCommand(command: PixooCommand) {
     }
 
     markPixooReachability(true);
+    debugLog('Pixoo command completed.', {
+      command: command.Command,
+      durationMs: Date.now() - startedAt
+    });
     return body;
   } catch (error) {
     markPixooReachability(false);
+    debugLog('Pixoo command failed.', {
+      command: command.Command,
+      durationMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error)
+    });
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -91,12 +103,18 @@ export async function sendPixooCommand(command: PixooCommand) {
 export async function getPixooSettings() {
   try {
     const settings = await sendPixooCommand({ Command: 'Channel/GetAllConf' });
+    cachePixooSettings(settings);
     syncPixooScreenPowerFromSettings(settings);
     return settings;
   } catch (error) {
     markPixooReachability(false);
     throw error;
   }
+}
+
+export function getCachedPixooSettings() {
+  syncReachabilityHost();
+  return reachabilityState.settings;
 }
 
 export async function getPixooSettingsSnapshot() {
@@ -136,19 +154,28 @@ export function getEmptyPreviewBuffer() {
 export async function setBrightness(value: number) {
   const brightness = clampInt(value, 0, 100);
 
-  return sendPixooCommand({
+  const response = await sendPixooCommand({
     Command: 'Channel/SetBrightness',
     Brightness: brightness
   });
+
+  updateCachedPixooSettings({ Brightness: brightness });
+  return response;
 }
 
 export async function setWhiteBalance(red: number, green: number, blue: number) {
-  return sendPixooCommand({
-    Command: 'Device/SetWhiteBalance',
+  const values = {
     RValue: clampInt(red, 0, 100),
     GValue: clampInt(green, 0, 100),
     BValue: clampInt(blue, 0, 100)
+  };
+  const response = await sendPixooCommand({
+    Command: 'Device/SetWhiteBalance',
+    ...values
   });
+
+  updateCachedPixooSettings(values);
+  return response;
 }
 
 export async function setScreen(on: boolean) {
@@ -161,6 +188,7 @@ export async function setScreen(on: boolean) {
   markPixooScreenPower(on, {
     forceRecovery: on
   });
+  updateCachedPixooSettings({ LightSwitch: enabled });
 
   return response;
 }
@@ -196,12 +224,22 @@ export async function pushPixelBuffer(size: number, buffer: number[]) {
   await waitForPixooDrawReady();
 
   if (shouldResetHttpGifId(resolution)) {
+    debugLog('Resetting Pixoo HTTP GIF id.', {
+      resolution,
+      framesSinceReset: drawState.framesSinceReset
+    });
     await sendPixooCommand({
       Command: 'Draw/ResetHttpGifId'
     });
   }
 
   const picId = drawState.framesSinceReset + 1;
+  debugLog('Sending Pixoo frame.', {
+    resolution,
+    picId,
+    framesSinceReset: drawState.framesSinceReset,
+    expectedLength
+  });
   const response = await sendPixooCommand({
     Command: 'Draw/SendHttpGif',
     PicNum: 1,
@@ -223,6 +261,22 @@ function safeParseJson(text: string) {
   } catch {
     return text;
   }
+}
+
+function cachePixooSettings(settings: unknown) {
+  reachabilityState.settings = settings;
+}
+
+function updateCachedPixooSettings(changes: Record<string, unknown>) {
+  if (!isRecord(reachabilityState.settings)) {
+    reachabilityState.settings = { ...changes };
+    return;
+  }
+
+  reachabilityState.settings = {
+    ...reachabilityState.settings,
+    ...changes
+  };
 }
 
 export function subscribePixooRecovery(listener: PixooRecoveryListener) {
@@ -293,6 +347,7 @@ async function waitForPixooDrawReady() {
   const remaining = getPixooRecoveryState().drawCooldownRemainingMs;
 
   if (remaining > 0) {
+    debugLog('Waiting for Pixoo draw recovery.', { remainingMs: remaining });
     await delay(remaining);
   }
 
@@ -420,6 +475,7 @@ function syncReachabilityHost() {
     reachabilityState.screenOn = true;
     reachabilityState.screenObserved = false;
     reachabilityState.drawCooldownUntil = 0;
+    reachabilityState.settings = null;
   }
 }
 
@@ -450,6 +506,7 @@ function getPixooReachabilityState() {
     screenOn: true,
     screenObserved: false,
     drawCooldownUntil: 0,
+    settings: null,
     powerListeners: new Set(),
     recoveryListeners: new Set()
   };
@@ -459,6 +516,7 @@ function getPixooReachabilityState() {
   globalScope[key].screenOn ??= true;
   globalScope[key].screenObserved ??= false;
   globalScope[key].drawCooldownUntil ??= 0;
+  globalScope[key].settings ??= null;
 
   return globalScope[key];
 }

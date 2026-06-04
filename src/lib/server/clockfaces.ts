@@ -22,6 +22,7 @@ import { publishPixooPalEvent, publishPreviewFrame } from './previewStream';
 import { fileClockfacePersistenceStore } from './clockfacePersistence';
 import { getCommunityClockfacesDebugInfo, getInstalledCommunityClockfaces } from './communityClockfaces';
 import { getClockfaceHomeAssistantClient } from './homeAssistant';
+import { debugLog } from './debug';
 
 export type ClockfaceInputView = Omit<ClockfaceInput, 'onSubmit'>;
 export type ClockfaceInputRowView = ClockfaceInputView[];
@@ -172,7 +173,9 @@ if (!clockfaceRuntimeState.signalsRegistered) {
 }
 
 clockfaceRuntimeState.recoveryUnsubscribe = subscribePixooRecovery((recovery) => {
-  scheduleClockfaceRecovery(recovery.drawCooldownRemainingMs);
+  scheduleServiceClockfaceRecovery(recovery.drawCooldownRemainingMs).catch((error) => {
+    console.error('Clockface service recovery failed:', error);
+  });
 });
 
 clockfaceRuntimeState.powerUnsubscribe = subscribePixooPower((power) => {
@@ -269,6 +272,10 @@ export async function submitClockfaceInput(id: string, value: ClockfaceInputValu
   const runner = getActiveRunner();
 
   if (!isClockfacesPaused() && runner?.id === clockface.id) {
+    debugLog('Clearing pending frames after clockface input submit.', {
+      runnerId: runner.id,
+      pendingFrames: runner.pendingFrames.length
+    });
     runner.pendingFrames = [];
     await renderRunnerFrame(runner, clockface.instance);
     scheduleNextFrame(runner, clockface.instance);
@@ -305,6 +312,10 @@ export async function refreshActiveClockface() {
     return;
   }
 
+  debugLog('Clearing pending frames before active clockface refresh.', {
+    runnerId: runner.id,
+    pendingFrames: runner.pendingFrames.length
+  });
   runner.pendingFrames = [];
   await renderRunnerFrame(runner, clockface);
 
@@ -362,6 +373,10 @@ export async function showNotification(text: string, beep: boolean) {
   if (runner) {
     clearTimeout(runner.timer);
     runner.timer = undefined;
+    debugLog('Clearing pending frames before notification overlay.', {
+      runnerId: runner.id,
+      pendingFrames: runner.pendingFrames.length
+    });
     runner.pendingFrames = [];
     runner.nextPushAt = undefined;
     scheduleNextFrame(runner, clockface);
@@ -549,6 +564,10 @@ async function stopActiveClockface() {
   }
 
   runner.stopped = true;
+  debugLog('Clearing pending frames while stopping active clockface.', {
+    runnerId: runner.id,
+    pendingFrames: runner.pendingFrames.length
+  });
   runner.pendingFrames = [];
   clearTimeout(runner.timer);
   clockfaceRuntimeState.activeRunner = undefined;
@@ -635,9 +654,17 @@ async function renderRunnerFrame(runner: ClockfaceRunner, clockface: Clockface) 
       return;
     }
 
+    const pendingBeforePush = runner.pendingFrames.length;
     runner.pendingFrames.push({
       activeId: runner.id,
       buffer: [...display.buffer],
+      size: display.size,
+      updateIntervalMs: getFrameInterval(clockface)
+    });
+    debugLog('Queued rendered frame.', {
+      runnerId: runner.id,
+      pendingBeforePush,
+      pendingAfterPush: runner.pendingFrames.length,
       size: display.size,
       updateIntervalMs: getFrameInterval(clockface)
     });
@@ -674,10 +701,28 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
         continue;
       }
 
+      debugLog('Dequeuing frame for Pixoo push.', {
+        runnerId: runner.id,
+        pendingAfterShift: runner.pendingFrames.length,
+        nextPushAt: runner.nextPushAt ?? null,
+        size: frame.size,
+        updateIntervalMs: frame.updateIntervalMs
+      });
       await waitForRunnerPushSlot(runner);
       const pushStartedAt = Date.now();
       await enqueueFramePush(runner, frame);
       runner.nextPushAt = pushStartedAt + frame.updateIntervalMs;
+
+      // await waitForRunnerPushSlot(runner);
+      // await enqueueFramePush(runner, frame);
+      // runner.nextPushAt = Date.now() + frame.updateIntervalMs;
+
+      debugLog('Frame push completed.', {
+        runnerId: runner.id,
+        pushDurationMs: Date.now() - pushStartedAt,
+        pendingFrames: runner.pendingFrames.length,
+        nextPushAt: runner.nextPushAt
+      });
 
       if (isRunnerActive(runner)) {
         scheduleNextFrame(runner, getClockfaceEntry(runner.id).instance);
@@ -685,7 +730,6 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
     }
   } finally {
     runner.sending = false;
-
     if (isRunnerActive(runner) && runner.pendingFrames.length > 0) {
       pushPendingFramesInBackground(runner);
     }
@@ -726,6 +770,10 @@ async function waitForRunnerPushSlot(runner: ClockfaceRunner) {
   const remaining = Math.max(0, (runner.nextPushAt ?? 0) - Date.now());
 
   if (remaining > 0) {
+    debugLog('Waiting for next Pixoo push slot.', {
+      runnerId: runner.id,
+      remainingMs: remaining
+    });
     await delay(remaining);
   }
 }
@@ -754,6 +802,7 @@ async function pauseClockfaces({ publishPreview = true }: { publishPreview?: boo
   clockfaceRuntimeState.clockfacesPaused = true;
   clearTimeout(clockfaceRuntimeState.recoveryTimer);
   clockfaceRuntimeState.recoveryTimer = undefined;
+  debugLog('Pausing clockfaces.', { publishPreview });
   await stopActiveClockface();
 
   if (publishPreview) {
@@ -807,6 +856,7 @@ async function pushServiceClockfaceFrame() {
     return;
   }
 
+  debugLog('Pushing service clockface frame.');
   const preview = getServiceClockfacePreview();
 
   await setCustomChannel();
@@ -819,34 +869,35 @@ async function pushServiceClockfaceFrame() {
   });
 }
 
-function scheduleClockfaceRecovery(delayMs: number) {
+async function scheduleServiceClockfaceRecovery(delayMs: number) {
   if (isClockfacesPaused() || isPixooPalOff()) {
     return;
   }
 
+  debugLog('Scheduling service clockface recovery.', { delayMs });
+  clockfaceRuntimeState.serviceTransition = true;
+  await pauseClockfaces({ publishPreview: false });
+
   clearTimeout(clockfaceRuntimeState.recoveryTimer);
   clockfaceRuntimeState.recoveryTimer = setTimeout(() => {
-    if (disposed || isClockfacesPaused() || !getActiveClockfaceId()) {
+    if (disposed || isPixooPalOff() || !getActiveClockfaceId()) {
+      clockfaceRuntimeState.serviceTransition = false;
       return;
     }
 
-    const clockface = getActiveClockfaceEntry().instance;
-
-    if (!getActiveRunner()) {
-      startActiveClockface(getActiveClockfaceId()).catch((error) => {
-        console.error('Clockface recovery start failed:', error);
+    enqueueServiceClockfaceFrame()
+      .then(() => {
+        debugLog('Service clockface recovery frame pushed.');
+        scheduleServiceClockfaceResume();
+      })
+      .catch((error) => {
+        clockfaceRuntimeState.serviceTransition = false;
+        clockfaceRuntimeState.clockfacesPaused = false;
+        console.error('Clockface service recovery frame failed:', error);
+        refreshActiveClockface().catch((refreshError) => {
+          console.error('Clockface recovery refresh failed:', refreshError);
+        });
       });
-      return;
-    }
-
-    const runner = getActiveRunner();
-
-    if (runner?.id === getActiveClockfaceId()) {
-      renderRunnerFrame(runner, clockface).catch((error) => {
-        console.error('Clockface recovery render failed:', error);
-      });
-      scheduleNextFrame(runner, clockface);
-    }
   }, Math.max(0, delayMs));
 }
 

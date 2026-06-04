@@ -23,10 +23,13 @@ map:
     read_only: false
 options:
   pixoo_device_address: ""
+  debug_logging: false
 schema:
   pixoo_device_address: str?
+  debug_logging: bool?
 environment:
   PORT: "5173"
+  DEBUG_LOGGING: "false"
   BODY_SIZE_LIMIT: "25M"
 discovery:
   - pixoopal

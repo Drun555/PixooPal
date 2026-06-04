@@ -46,12 +46,17 @@ if (existsSync(OPTIONS_PATH)) {
       '[PixooPal] Home Assistant options did not contain pixoo_device_address, pixoo_address, or pixoo_host.'
     );
   }
+
+  if (typeof options.debug_logging === 'boolean') {
+    process.env.DEBUG_LOGGING = options.debug_logging ? 'true' : 'false';
+    console.log(`[PixooPal] Debug logging loaded from Home Assistant options: ${process.env.DEBUG_LOGGING}`);
+  }
 } else {
   console.warn(`[PixooPal] Home Assistant options file was not found at ${OPTIONS_PATH}.`);
 }
 
 console.log(
-  `[PixooPal] Effective configuration before server start: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS || '(empty)'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS || '(empty)'}, PORT=${process.env.PORT}, HOST=${process.env.HOST}`
+  `[PixooPal] Effective configuration before server start: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS || '(empty)'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS || '(empty)'}, PORT=${process.env.PORT}, HOST=${process.env.HOST}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}`
 );
 
 await import('./server.mjs');
@@ -76,7 +81,7 @@ function logStartupEnvironment() {
   );
   console.log(`[PixooPal] App root: ${APP_ROOT}; cwd: ${process.cwd()}; project data: ${PROJECT_DATA_PATH}`);
   console.log(
-    `[PixooPal] Runtime env presence: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS ? 'set' : 'empty'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS ? 'set' : 'empty'}`
+    `[PixooPal] Runtime env presence: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS ? 'set' : 'empty'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS ? 'set' : 'empty'}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}`
   );
 }
 
