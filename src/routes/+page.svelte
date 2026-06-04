@@ -279,6 +279,10 @@
     return label;
   }
 
+  function openBenchmark() {
+    location.href = apiUrl('/benchmark');
+  }
+
   async function refreshStatus(buttonKey = '') {
     if (buttonKey) {
       setButtonState(buttonKey, 'busy');
@@ -673,14 +677,17 @@
         </span>
         <span>Pixoo</span>
 
-        <span
+        <button
+          aria-label="Open benchmark"
           class:missing={!pixooAddressConfigured}
           class:offline={pixooAddressConfigured && status?.reachable === false}
           class:online={status?.reachable === true}
           class="address-status"
+          ondblclick={openBenchmark}
+          type="button"
         >
           {pixooConnectionLabel}
-        </span>
+        </button>
       </div>
 
       <div class="status-address">{pixooAddress || 'Not configured'}</div>
@@ -1032,9 +1039,14 @@
   }
 
   .address-status {
+    border: 0;
+    background: transparent;
+    cursor: default;
     margin-left: auto;
     min-width: 0;
+    padding: 0;
     color: #aeb9c8;
+    font: inherit;
     font-size: 0.78rem;
     font-weight: 850;
     text-align: center;

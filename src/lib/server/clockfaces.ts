@@ -336,6 +336,22 @@ export function refreshActiveClockfaceInBackground() {
   });
 }
 
+export async function runWithClockfacesPaused<T>(operation: () => Promise<T>) {
+  const activeId = getActiveClockfaceId();
+
+  await pauseClockfaces({ publishPreview: false });
+
+  try {
+    return await operation();
+  } finally {
+    clockfaceRuntimeState.clockfacesPaused = false;
+
+    if (!disposed && activeId) {
+      await startActiveClockface(activeId);
+    }
+  }
+}
+
 export async function showNotification(text: string, beep: boolean) {
   startNotification(text);
 

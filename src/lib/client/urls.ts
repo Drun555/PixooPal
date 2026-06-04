@@ -1,4 +1,4 @@
-const CLIENT_ROUTES = ['clockfaces'];
+const CLIENT_ROUTES = ['benchmark', 'clockfaces'];
 
 function trimLeadingSlash(path: string) {
   return path.replace(/^\/+/, '');
