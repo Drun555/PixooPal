@@ -141,7 +141,7 @@
   let notificationBeep = true;
   let previewSrc = '';
   let previewFallbackSrc = '';
-  let previewMode: 'mjpeg' | 'polling' = 'mjpeg';
+  let previewMode: 'mjpeg' | 'websocket' = 'mjpeg';
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
@@ -570,8 +570,11 @@
   }
 
   onMount(() => {
-    previewMode = isHomeAssistantIngress() ? 'polling' : 'mjpeg';
-    previewSrc = apiUrl(previewMode === 'polling' ? '/api/v1/preview.jpg' : '/api/v1/preview.mjpeg');
+    previewMode = isHomeAssistantIngress() ? 'websocket' : 'mjpeg';
+    previewSrc =
+      previewMode === 'websocket'
+        ? apiWebSocketUrl('/api/v1/preview.ws')
+        : apiUrl('/api/v1/preview.mjpeg');
     previewFallbackSrc = apiUrl('/api/v1/preview.jpg');
 
     refreshConfig()

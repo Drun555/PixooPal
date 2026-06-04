@@ -3,14 +3,20 @@
 
   export let previewSrc: string;
   export let fallbackSrc = '';
-  export let mode: 'mjpeg' | 'polling' = 'mjpeg';
+  export let mode: 'mjpeg' | 'polling' | 'websocket' = 'mjpeg';
 
   const POLLING_INTERVAL_MS = 500;
+  const WEBSOCKET_RECONNECT_MAX_MS = 5000;
 
   let usePolling = false;
   let pollingSrc = '';
+  let websocketSrc = '';
   let activePreviewKey = '';
   let pollingTimer: ReturnType<typeof setInterval> | undefined;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconnectDelayMs = 500;
+  let previewSocket: WebSocket | undefined;
+  let objectUrl = '';
 
   $: {
     const nextPreviewKey = `${mode}:${previewSrc}:${fallbackSrc}`;
@@ -24,12 +30,22 @@
   function resetPreview() {
     usePolling = false;
     pollingSrc = '';
+    websocketSrc = '';
     clearInterval(pollingTimer);
+    clearTimeout(reconnectTimer);
     pollingTimer = undefined;
+    reconnectTimer = undefined;
+    closePreviewSocket();
+    revokeObjectUrl();
 
     if (mode === 'polling') {
       startPollingPreview();
       return;
+    }
+
+    if (mode === 'websocket') {
+      websocketSrc = fallbackSrc;
+      connectPreviewWebSocket();
     }
   }
 
@@ -50,8 +66,72 @@
     pollingSrc = `${source}${source.includes('?') ? '&' : '?'}t=${Date.now()}`;
   }
 
+  function connectPreviewWebSocket() {
+    if (typeof WebSocket === 'undefined' || !previewSrc) {
+      return;
+    }
+
+    closePreviewSocket();
+
+    const socket = new WebSocket(previewSrc);
+    previewSocket = socket;
+    socket.binaryType = 'blob';
+
+    socket.onopen = () => {
+      reconnectDelayMs = 500;
+    };
+
+    socket.onmessage = (event) => {
+      const blob = event.data instanceof Blob ? event.data : new Blob([event.data], { type: 'image/jpeg' });
+      const nextObjectUrl = URL.createObjectURL(blob);
+      const previousObjectUrl = objectUrl;
+      objectUrl = nextObjectUrl;
+      websocketSrc = nextObjectUrl;
+
+      if (previousObjectUrl) {
+        URL.revokeObjectURL(previousObjectUrl);
+      }
+    };
+
+    socket.onclose = () => {
+      if (previewSocket === socket) {
+        previewSocket = undefined;
+        schedulePreviewReconnect();
+      }
+    };
+
+    socket.onerror = () => {
+      socket.close();
+    };
+  }
+
+  function schedulePreviewReconnect() {
+    if (mode !== 'websocket') {
+      return;
+    }
+
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connectPreviewWebSocket, reconnectDelayMs);
+    reconnectDelayMs = Math.min(reconnectDelayMs * 1.8, WEBSOCKET_RECONNECT_MAX_MS);
+  }
+
+  function closePreviewSocket() {
+    previewSocket?.close();
+    previewSocket = undefined;
+  }
+
+  function revokeObjectUrl() {
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = '';
+    }
+  }
+
   onDestroy(() => {
     clearInterval(pollingTimer);
+    clearTimeout(reconnectTimer);
+    closePreviewSocket();
+    revokeObjectUrl();
   });
 </script>
 
@@ -65,6 +145,12 @@
             aria-label="Pixoo Buffer"
             alt=""
             src={pollingSrc}
+          />
+        {:else if mode === 'websocket' && websocketSrc}
+          <img
+            aria-label="Pixoo Buffer"
+            alt=""
+            src={websocketSrc}
           />
         {:else if previewSrc}
           <img
