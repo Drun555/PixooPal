@@ -1,148 +1,305 @@
-type HomeAssistantHandshake = {
-  entryId: string;
-  renderPath: string;
-  renderUrl?: string;
+import { getRuntimeConfig } from './config';
+
+type HomeAssistantConnection = {
+  configured: boolean;
+  supervisor: boolean;
+  token: string;
+  url: string;
 };
 
-type HomeAssistantState = {
-  entryId: string;
-  renderPath: string;
-  renderUrl: string;
-  connectedAt: string;
+export type HomeAssistantStatus = {
+  checkedAt: string | null;
+  configured: boolean;
+  connected: boolean;
+  message: string;
+  supervisor: boolean;
+  tokenConfigured: boolean;
+  url: string;
 };
 
-const DEFAULT_SUPERVISOR_CORE_URL = 'http://supervisor/core';
+const TEMPLATE_PATH = '/api/template';
+const PROBE_TEMPLATE = '{{ 1 + 1 }}';
+const REQUEST_TIMEOUT_MS = 5000;
 
-const homeAssistantState = getHomeAssistantState();
+let lastStatus: HomeAssistantStatus | null = null;
+let lastStatusSignature = '';
 
-export function registerHomeAssistantConnection(handshake: HomeAssistantHandshake) {
-  const entryId = normalizeString(handshake.entryId);
-  const renderPath = normalizeRenderPath(handshake.renderPath);
-  const renderUrl = normalizeString(handshake.renderUrl) || getDefaultRenderUrl(renderPath);
+export async function getHomeAssistantStatus() {
+  return probeHomeAssistantConnection();
+}
 
-  if (!entryId) {
-    throw new Error('Home Assistant entryId is required.');
+export async function probeHomeAssistantConnection(): Promise<HomeAssistantStatus> {
+  const connection = getHomeAssistantConnection();
+  const checkedAt = new Date().toISOString();
+
+  if (!connection.configured) {
+    return setHomeAssistantStatus({
+      checkedAt,
+      configured: false,
+      connected: false,
+      message: getMissingConfigurationMessage(connection),
+      supervisor: connection.supervisor,
+      tokenConfigured: Boolean(connection.token),
+      url: connection.url
+    });
   }
 
-  if (!renderPath) {
-    throw new Error('Home Assistant renderPath is required.');
+  const startedAt = Date.now();
+
+  try {
+    const result = await renderJinja(PROBE_TEMPLATE, {}, connection);
+
+    return setHomeAssistantStatus({
+      checkedAt,
+      configured: true,
+      connected: true,
+      message: `Home Assistant Jinja probe succeeded: ${result}`,
+      supervisor: connection.supervisor,
+      tokenConfigured: true,
+      url: connection.url
+    }, Date.now() - startedAt);
+  } catch (error) {
+    return setHomeAssistantStatus({
+      checkedAt,
+      configured: true,
+      connected: false,
+      message: error instanceof Error ? error.message : String(error),
+      supervisor: connection.supervisor,
+      tokenConfigured: true,
+      url: connection.url
+    }, Date.now() - startedAt);
   }
-
-  if (!renderUrl) {
-    throw new Error('Home Assistant render URL is not configured.');
-  }
-
-  homeAssistantState.connection = {
-    entryId,
-    renderPath,
-    renderUrl,
-    connectedAt: new Date().toISOString()
-  };
-
-  return getHomeAssistantConnectionState();
 }
 
 export function getHomeAssistantConnectionState() {
+  const connection = getHomeAssistantConnection();
+
   return {
-    connected: Boolean(homeAssistantState.connection),
-    connection: homeAssistantState.connection ?? null
+    configured: connection.configured,
+    connected: lastStatus?.connected ?? false,
+    connection: connection.url
+      ? {
+          supervisor: connection.supervisor,
+          url: connection.url
+        }
+      : null
   };
 }
 
 export function getClockfaceHomeAssistantClient() {
   return {
     get connected() {
-      return Boolean(homeAssistantState.connection);
+      return lastStatus?.connected ?? getHomeAssistantConnection().configured;
     },
-    renderJinja
+    renderJinja,
+    async fetchBinary(url: string) {
+      const connection = getHomeAssistantConnection();
+
+      if (!connection.configured) {
+        throw new Error(getMissingConfigurationMessage(connection));
+      }
+
+      const resolvedUrl = resolveHomeAssistantUrl(url);
+      const response = await fetch(resolvedUrl, {
+        headers: isHomeAssistantUrl(resolvedUrl)
+          ? {
+              authorization: `Bearer ${connection.token}`
+            }
+          : undefined,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      });
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        throw new Error(
+          `Home Assistant returned HTTP ${response.status}${responseText ? `: ${responseText}` : ''}.`
+        );
+      }
+
+      return {
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        type: response.headers.get('content-type')?.split(';')[0]?.trim() || 'application/octet-stream'
+      };
+    },
+    async callService(
+      domain: string,
+      service: string,
+      data: Record<string, unknown> = {},
+      options: { returnResponse?: boolean } = {}
+    ) {
+      return callService(domain, service, data, options);
+    }
   };
 }
 
-export async function renderJinja(template: string, variables: Record<string, unknown> = {}) {
-  const connection = homeAssistantState.connection;
+export async function callService(
+  domain: string,
+  service: string,
+  data: Record<string, unknown> = {},
+  options: { returnResponse?: boolean } = {},
+  existingConnection?: HomeAssistantConnection
+) {
+  const connection = existingConnection ?? getHomeAssistantConnection();
 
-  if (!connection) {
-    throw new Error('Home Assistant integration is not connected.');
+  if (!connection.configured) {
+    throw new Error(getMissingConfigurationMessage(connection));
   }
 
-  const response = await fetch(connection.renderUrl, {
-    method: 'POST',
-    headers: {
-      ...getHomeAssistantRequestHeaders(),
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      template,
-      variables
-    })
-  });
-  const body = (await response.json().catch(() => ({}))) as unknown;
+  const safeDomain = normalizeServicePathPart(domain, 'domain');
+  const safeService = normalizeServicePathPart(service, 'service');
+  const response = await fetch(
+    resolveHomeAssistantUrl(
+      `/api/services/${safeDomain}/${safeService}${options.returnResponse ? '?return_response' : ''}`
+    ),
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${connection.token}`,
+        'content-type': 'application/json'
+      },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      body: JSON.stringify(data)
+    }
+  );
+  const responseText = await response.text();
 
   if (!response.ok) {
-    throw new Error(`Home Assistant returned HTTP ${response.status}.`);
+    throw new Error(
+      `Home Assistant returned HTTP ${response.status}${responseText ? `: ${responseText}` : ''}.`
+    );
   }
 
-  if (!isRecord(body) || body.ok === false) {
-    throw new Error(String(isRecord(body) ? body.message : '') || 'Home Assistant template render failed.');
-  }
-
-  return String(body.result ?? '');
+  return responseText ? JSON.parse(responseText) : null;
 }
 
-function getDefaultRenderUrl(renderPath: string) {
-  const configuredUrl = normalizeString(process.env.HOME_ASSISTANT_URL);
+export async function renderJinja(
+  template: string,
+  variables: Record<string, unknown> = {},
+  existingConnection?: HomeAssistantConnection
+) {
+  const connection = existingConnection ?? getHomeAssistantConnection();
 
-  if (configuredUrl) {
-    return `${configuredUrl.replace(/\/+$/, '')}${renderPath}`;
+  if (!connection.configured) {
+    throw new Error(getMissingConfigurationMessage(connection));
   }
 
-  if (process.env.SUPERVISOR_TOKEN) {
-    return `${DEFAULT_SUPERVISOR_CORE_URL}${renderPath}`;
+  const body: Record<string, unknown> = { template };
+  if (Object.keys(variables).length > 0) {
+    body.variables = variables;
   }
 
-  return '';
+  const response = await fetch(connection.url, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${connection.token}`,
+      'content-type': 'application/json'
+    },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    body: JSON.stringify(body)
+  });
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Home Assistant returned HTTP ${response.status}${responseText ? `: ${responseText}` : ''}.`
+    );
+  }
+
+  return responseText;
 }
 
-function getHomeAssistantRequestHeaders() {
-  const headers: Record<string, string> = {};
+function getHomeAssistantConnection(): HomeAssistantConnection {
+  const config = getRuntimeConfig();
   const supervisorToken = normalizeString(process.env.SUPERVISOR_TOKEN);
-  const homeAssistantToken = normalizeString(process.env.HOME_ASSISTANT_TOKEN);
 
   if (supervisorToken) {
-    headers.authorization = `Bearer ${supervisorToken}`;
-  } else if (homeAssistantToken) {
-    headers.authorization = `Bearer ${homeAssistantToken}`;
+    return {
+      configured: true,
+      supervisor: true,
+      token: supervisorToken,
+      url: `${config.homeAssistantUrl}${TEMPLATE_PATH}`
+    };
   }
 
-  return headers;
+  const token = normalizeString(process.env.HOME_ASSISTANT_TOKEN);
+
+  return {
+    configured: Boolean(config.homeAssistantUrl && token),
+    supervisor: false,
+    token,
+    url: config.homeAssistantUrl ? `${config.homeAssistantUrl}${TEMPLATE_PATH}` : ''
+  };
 }
 
-function normalizeRenderPath(value: string) {
-  const path = normalizeString(value);
+function resolveHomeAssistantUrl(url: string) {
+  const normalized = normalizeString(url);
 
-  if (!path) {
-    return '';
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
   }
 
-  return path.startsWith('/') ? path : `/${path}`;
+  const baseUrl = getRuntimeConfig().homeAssistantUrl.replace(/\/+$/, '');
+  const path = normalized.startsWith('/') ? normalized : `/${normalized}`;
+
+  return `${baseUrl}${path}`;
+}
+
+function isHomeAssistantUrl(url: string) {
+  try {
+    return new URL(url).origin === new URL(getRuntimeConfig().homeAssistantUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeServicePathPart(value: string, label: string) {
+  const normalized = normalizeString(value);
+
+  if (!/^[a-z0-9_]+$/i.test(normalized)) {
+    throw new Error(`Home Assistant service ${label} is invalid.`);
+  }
+
+  return normalized;
+}
+
+function setHomeAssistantStatus(status: HomeAssistantStatus, durationMs = 0) {
+  lastStatus = status;
+
+  const signature = `${status.configured}|${status.connected}|${status.url}|${status.message}`;
+  if (signature !== lastStatusSignature) {
+    lastStatusSignature = signature;
+    const payload = {
+      url: status.url || '(empty)',
+      supervisor: status.supervisor,
+      tokenConfigured: status.tokenConfigured,
+      message: status.message,
+      durationMs
+    };
+
+    if (status.connected) {
+      console.log('[PixooPal] Home Assistant Jinja probe succeeded.', payload);
+    } else if (status.configured) {
+      console.warn('[PixooPal] Home Assistant Jinja probe failed.', payload);
+    } else {
+      console.log('[PixooPal] Home Assistant Jinja is not configured.', payload);
+    }
+  }
+
+  return status;
+}
+
+function getMissingConfigurationMessage(connection: HomeAssistantConnection) {
+  if (!connection.url) {
+    return 'Home Assistant URL is not configured.';
+  }
+
+  if (!connection.token) {
+    return 'Home Assistant token is not configured.';
+  }
+
+  return 'Home Assistant is not configured.';
 }
 
 function normalizeString(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function getHomeAssistantState() {
-  const key = Symbol.for('pixoopal.homeAssistant');
-  const globalScope = globalThis as typeof globalThis & {
-    [key]?: {
-      connection?: HomeAssistantState;
-    };
-  };
-
-  globalScope[key] ??= {};
-  return globalScope[key];
 }

@@ -51,12 +51,27 @@ if (existsSync(OPTIONS_PATH)) {
     process.env.DEBUG_LOGGING = options.debug_logging ? 'true' : 'false';
     console.log(`[PixooPal] Debug logging loaded from Home Assistant options: ${process.env.DEBUG_LOGGING}`);
   }
+
+  const homeAssistantUrl = normalizeOption(
+    options.home_assistant_url ?? options.home_assistant_address
+  );
+  const homeAssistantToken = normalizeOption(options.home_assistant_token);
+
+  if (homeAssistantUrl) {
+    process.env.HOME_ASSISTANT_URL = homeAssistantUrl;
+    console.log(`[PixooPal] Home Assistant URL loaded from options: ${homeAssistantUrl}`);
+  }
+
+  if (homeAssistantToken) {
+    process.env.HOME_ASSISTANT_TOKEN = homeAssistantToken;
+    console.log('[PixooPal] Home Assistant token loaded from options.');
+  }
 } else {
   console.warn(`[PixooPal] Home Assistant options file was not found at ${OPTIONS_PATH}.`);
 }
 
 console.log(
-  `[PixooPal] Effective configuration before server start: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS || '(empty)'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS || '(empty)'}, PORT=${process.env.PORT}, HOST=${process.env.HOST}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}`
+  `[PixooPal] Effective configuration before server start: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS || '(empty)'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS || '(empty)'}, PORT=${process.env.PORT}, HOST=${process.env.HOST}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}, HOME_ASSISTANT_URL=${process.env.HOME_ASSISTANT_URL || '(empty)'}, HOME_ASSISTANT_TOKEN=${process.env.HOME_ASSISTANT_TOKEN ? 'set' : 'empty'}, SUPERVISOR_TOKEN=${process.env.SUPERVISOR_TOKEN ? 'set' : 'empty'}`
 );
 
 await import('./server.mjs');
@@ -81,7 +96,7 @@ function logStartupEnvironment() {
   );
   console.log(`[PixooPal] App root: ${APP_ROOT}; cwd: ${process.cwd()}; project data: ${PROJECT_DATA_PATH}`);
   console.log(
-    `[PixooPal] Runtime env presence: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS ? 'set' : 'empty'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS ? 'set' : 'empty'}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}`
+    `[PixooPal] Runtime env presence: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS ? 'set' : 'empty'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS ? 'set' : 'empty'}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}, HOME_ASSISTANT_URL=${process.env.HOME_ASSISTANT_URL ? 'set' : 'empty'}, HOME_ASSISTANT_TOKEN=${process.env.HOME_ASSISTANT_TOKEN ? 'set' : 'empty'}, SUPERVISOR_TOKEN=${process.env.SUPERVISOR_TOKEN ? 'set' : 'empty'}`
   );
 }
 

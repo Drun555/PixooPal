@@ -3,23 +3,19 @@
 
   export let previewSrc: string;
   export let fallbackSrc = '';
-  export let mode: 'mjpeg' | 'polling' | 'websocket' = 'mjpeg';
 
-  const POLLING_INTERVAL_MS = 500;
   const WEBSOCKET_RECONNECT_MAX_MS = 5000;
 
-  let usePolling = false;
-  let pollingSrc = '';
   let websocketSrc = '';
+  let useMjpegFallback = false;
   let activePreviewKey = '';
-  let pollingTimer: ReturnType<typeof setInterval> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectDelayMs = 500;
   let previewSocket: WebSocket | undefined;
   let objectUrl = '';
 
   $: {
-    const nextPreviewKey = `${mode}:${previewSrc}:${fallbackSrc}`;
+    const nextPreviewKey = `${previewSrc}:${fallbackSrc}`;
 
     if (nextPreviewKey !== activePreviewKey) {
       activePreviewKey = nextPreviewKey;
@@ -28,46 +24,18 @@
   }
 
   function resetPreview() {
-    usePolling = false;
-    pollingSrc = '';
     websocketSrc = '';
-    clearInterval(pollingTimer);
+    useMjpegFallback = false;
     clearTimeout(reconnectTimer);
-    pollingTimer = undefined;
     reconnectTimer = undefined;
     closePreviewSocket();
     revokeObjectUrl();
-
-    if (mode === 'polling') {
-      startPollingPreview();
-      return;
-    }
-
-    if (mode === 'websocket') {
-      websocketSrc = fallbackSrc;
-      connectPreviewWebSocket();
-    }
-  }
-
-  function startPollingPreview() {
-    usePolling = true;
-    updatePollingSrc();
-    pollingTimer ??= setInterval(updatePollingSrc, POLLING_INTERVAL_MS);
-  }
-
-  function updatePollingSrc() {
-    const source = fallbackSrc || previewSrc;
-
-    if (!source) {
-      pollingSrc = '';
-      return;
-    }
-
-    pollingSrc = `${source}${source.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    connectPreviewWebSocket();
   }
 
   function connectPreviewWebSocket() {
     if (typeof WebSocket === 'undefined' || !previewSrc) {
+      useMjpegFallback = true;
       return;
     }
 
@@ -87,6 +55,7 @@
       const previousObjectUrl = objectUrl;
       objectUrl = nextObjectUrl;
       websocketSrc = nextObjectUrl;
+      useMjpegFallback = false;
 
       if (previousObjectUrl) {
         URL.revokeObjectURL(previousObjectUrl);
@@ -96,6 +65,7 @@
     socket.onclose = () => {
       if (previewSocket === socket) {
         previewSocket = undefined;
+        useMjpegFallback = true;
         schedulePreviewReconnect();
       }
     };
@@ -106,7 +76,7 @@
   }
 
   function schedulePreviewReconnect() {
-    if (mode !== 'websocket') {
+    if (!previewSrc) {
       return;
     }
 
@@ -128,7 +98,6 @@
   }
 
   onDestroy(() => {
-    clearInterval(pollingTimer);
     clearTimeout(reconnectTimer);
     closePreviewSocket();
     revokeObjectUrl();
@@ -140,24 +109,17 @@
   <div class="preview-shell">
     <div class="pixoo-frame">
       <div class="pixel-screen">
-        {#if usePolling && pollingSrc}
+        {#if useMjpegFallback && fallbackSrc}
           <img
             aria-label="Pixoo Buffer"
             alt=""
-            src={pollingSrc}
+            src={fallbackSrc}
           />
-        {:else if mode === 'websocket' && websocketSrc}
+        {:else if websocketSrc}
           <img
             aria-label="Pixoo Buffer"
             alt=""
             src={websocketSrc}
-          />
-        {:else if previewSrc}
-          <img
-            aria-label="Pixoo Buffer"
-            alt=""
-            onerror={startPollingPreview}
-            src={previewSrc}
           />
         {/if}
       </div>
@@ -245,7 +207,7 @@
     }
 
     .preview-aura {
-      width: min(110vw, 520px);
+      width: min(100%, 520px);
     }
 
     .pixoo-frame {

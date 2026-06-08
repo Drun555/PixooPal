@@ -2,6 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { getClockfacesView } from '$lib/server/clockfaces';
 import { getPixooPalControlState } from '$lib/server/control';
 import { getRuntimeConfig } from '$lib/server/config';
+import { getHomeAssistantStatus } from '$lib/server/homeAssistant';
 import { getPixooRecoveryState, getPixooSettings } from '$lib/server/pixoo';
 import { publishPixooPalEvent } from '$lib/server/previewStream';
 
@@ -9,6 +10,7 @@ export const GET: RequestHandler = async () => {
   const config = getRuntimeConfig();
   const clockfaces = await getClockfacesView();
   const control = getPixooPalControlState();
+  const homeAssistant = await getHomeAssistantStatus();
 
   if (!config.pixooHost) {
     console.warn('[PixooPal] Status requested without Pixoo host configured.');
@@ -17,6 +19,7 @@ export const GET: RequestHandler = async () => {
       ok: true,
       reachable: false,
       config,
+      homeAssistant,
       settings: null,
       control,
       recovery: getPixooRecoveryState(),
@@ -39,6 +42,7 @@ export const GET: RequestHandler = async () => {
       ok: true,
       reachable: true,
       config,
+      homeAssistant,
       settings,
       control,
       recovery: getPixooRecoveryState(),
@@ -58,6 +62,7 @@ export const GET: RequestHandler = async () => {
       ok: false,
       reachable: false,
       config,
+      homeAssistant,
       settings: null,
       control,
       recovery: getPixooRecoveryState(),

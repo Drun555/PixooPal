@@ -14,7 +14,7 @@
   } from '@lucide/svelte';
   import ClockfaceInputs from '$lib/components/ClockfaceInputs.svelte';
   import ClockfacePreview from '$lib/components/ClockfacePreview.svelte';
-  import { apiUrl, apiWebSocketUrl, isHomeAssistantIngress } from '$lib/client/urls';
+  import { apiUrl, apiWebSocketUrl } from '$lib/client/urls';
 
   type PixooSettings = {
     Brightness?: number;
@@ -37,10 +37,22 @@
     reachable: boolean;
     config: {
       configured: boolean;
+      homeAssistantConfigured: boolean;
+      homeAssistantTokenConfigured: boolean;
+      homeAssistantUrl: string;
       pixooAddress: string;
       pixooHost: string;
       pixooPostUrl: string;
       webuiPort: string;
+    };
+    homeAssistant?: {
+      checkedAt: string | null;
+      configured: boolean;
+      connected: boolean;
+      message: string;
+      supervisor: boolean;
+      tokenConfigured: boolean;
+      url: string;
     };
     settings: PixooSettings | null;
     control?: {
@@ -141,7 +153,6 @@
   let notificationBeep = true;
   let previewSrc = '';
   let previewFallbackSrc = '';
-  let previewMode: 'mjpeg' | 'websocket' = 'mjpeg';
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
@@ -538,26 +549,28 @@
   }
 
   function getPixooConnectionLabel(nextStatus: StatusPayload | null) {
+    const homeAssistantLabel = `HA ${nextStatus?.homeAssistant?.connected ? 'Connected' : 'Disconnected'}`;
+
     if (!nextStatus) {
-      return pixooAddress ? 'checking' : 'Pixoo IP is not set';
+      return `${pixooAddress ? 'checking' : 'Pixoo IP is not set'} / ${homeAssistantLabel}`;
     }
 
     if (!nextStatus.config.pixooHost) {
-      return 'Pixoo IP is not set';
+      return `Pixoo IP is not set / ${homeAssistantLabel}`;
     }
 
-    return nextStatus.reachable ? 'online' : 'offline';
+    return `${nextStatus.reachable ? 'online' : 'offline'} / ${homeAssistantLabel}`;
   }
 
   function getPixooConnectionMessage(nextStatus: StatusPayload | null) {
     if (!nextStatus) {
       return pixooAddress
         ? 'Checking Pixoo reachability.'
-        : 'Pixoo IP is not configured.';
+        : 'Provide IP address.';
     }
 
     if (!nextStatus.config.pixooHost) {
-      return 'Pixoo IP is not configured.';
+      return 'Provide IP address.';
     }
 
     if (!nextStatus.reachable) {
@@ -566,16 +579,12 @@
 
     return pixooPalOff
       ? 'PixooPal is paused.'
-      : 'PixooPal is connected.';
+      : false;
   }
 
   onMount(() => {
-    previewMode = isHomeAssistantIngress() ? 'websocket' : 'mjpeg';
-    previewSrc =
-      previewMode === 'websocket'
-        ? apiWebSocketUrl('/api/v1/preview.ws')
-        : apiUrl('/api/v1/preview.mjpeg');
-    previewFallbackSrc = apiUrl('/api/v1/preview.jpg');
+    previewSrc = apiWebSocketUrl('/api/v1/preview.ws');
+    previewFallbackSrc = apiUrl('/api/v1/preview.mjpeg');
 
     refreshConfig()
       .catch(() => undefined)
@@ -605,11 +614,6 @@
   <div class="left-column">
     <section class="pixoo-status-card" aria-label="Pixoo status">
       <div class="status-title">
-        <span class="status-icon">
-          <Wifi size={16} />
-        </span>
-        <span>Pixoo</span>
-
         <button
           aria-label="Open benchmark"
           class:missing={!pixooAddressConfigured}
@@ -625,10 +629,12 @@
 
       <div class="status-address">{pixooAddress || 'Not configured'}</div>
       <input aria-label="Pixoo IP" bind:value={pixooAddress} disabled readonly type="hidden" />
-      <p class="connection-note">{pixooConnectionMessage}</p>
+      {#if pixooConnectionMessage}
+        <p class="connection-note">{pixooConnectionMessage}</p>
+      {/if}
     </section>
 
-    <ClockfacePreview fallbackSrc={previewFallbackSrc} mode={previewMode} {previewSrc} />
+    <ClockfacePreview fallbackSrc={previewFallbackSrc} {previewSrc} />
   </div>
 
   <div class="right-column">
@@ -902,45 +908,43 @@
   }
 
   .shell {
-    display: grid;
-    grid-template-columns: minmax(360px, 0.95fr) minmax(360px, 1.05fr);
-    width: min(1180px, calc(100% - 28px));
+    display: flex;
+    width: min(950px, calc(100% - 32px));
     min-height: 100vh;
     margin: 0 auto;
     padding: clamp(22px, 5vh, 54px) 0 42px;
     gap: 22px;
-    align-content: center;
     align-items: center;
+    justify-content: center;
   }
 
   .left-column,
   .right-column {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 16px;
     min-width: 0;
   }
 
   .left-column {
-    justify-items: center;
+    flex: 0 1 474px;
+    align-items: center;
   }
 
   .right-column {
-    align-content: center;
+    flex: 1 1 0;
+    justify-content: center;
   }
 
   .pixoo-status-card {
     position: relative;
+    text-align: center;
     display: grid;
     width: min(calc(42vw + 44px), 474px);
     max-width: 100%;
     gap: 8px;
     padding: 12px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    background: rgba(10, 14, 20, 0.72);
-    box-shadow:
-      0 14px 40px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
     overflow: visible;
   }
 
@@ -951,16 +955,6 @@
     color: #d9e2ec;
     font-size: 0.88rem;
     font-weight: 900;
-  }
-
-  .status-icon {
-    display: inline-grid;
-    width: 22px;
-    height: 22px;
-    place-items: center;
-    border-radius: 50%;
-    background: rgba(118, 220, 202, 0.12);
-    color: #87cfc0;
   }
 
   .status-address {
@@ -976,9 +970,9 @@
     border: 0;
     background: transparent;
     cursor: default;
-    margin-left: auto;
     min-width: 0;
     padding: 0;
+    width: 100%;
     color: #aeb9c8;
     font: inherit;
     font-size: 0.78rem;
@@ -1010,8 +1004,8 @@
   }
 
   .device-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     gap: 14px;
     align-items: stretch;
   }
@@ -1260,8 +1254,14 @@
     accent-color: #63d1bb;
   }
 
+  .brightness-block {
+    flex: 1 1 205px;
+    min-width: 0;
+  }
+
   .power-block {
-    min-width: 190px;
+    flex: 1 0 190px;
+    min-width: 0;
   }
 
   .segmented {
@@ -1307,7 +1307,8 @@
   }
 
   .clockface-panel {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 14px;
     padding: 16px;
   }
@@ -1321,27 +1322,33 @@
   }
 
   .clockface-picker-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
     gap: 10px;
     align-items: end;
   }
 
+  .clockface-picker-row .select-label {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
   .notification-panel {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 14px;
     padding: 16px;
   }
 
   .notification-form {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    display: flex;
     gap: 10px;
     align-items: end;
   }
 
   .notification-text {
     display: grid;
+    flex: 1 1 0;
+    min-width: 0;
     gap: 7px;
     color: #94a3b8;
     font-size: 0.82rem;
@@ -1412,18 +1419,22 @@
 
   @media (max-width: 860px) {
     .shell {
-      grid-template-columns: 1fr;
+      flex-direction: column;
       padding-top: 18px;
-      align-content: start;
-      align-items: start;
+      align-items: stretch;
     }
 
     .left-column {
-      justify-items: stretch;
+      flex-basis: auto;
+      align-items: stretch;
+    }
+
+    .right-column {
+      flex-basis: auto;
     }
 
     .device-controls {
-      grid-template-columns: 1fr;
+      flex-direction: column;
     }
 
     .pixoo-status-card {
@@ -1431,15 +1442,16 @@
     }
 
     .clockface-picker-row {
-      grid-template-columns: 1fr auto;
+      flex-wrap: wrap;
     }
 
     .notification-form {
-      grid-template-columns: 1fr;
+      flex-direction: column;
+      align-items: stretch;
     }
 
     .power-block {
-      min-width: 0;
+      flex-basis: auto;
     }
   }
 </style>

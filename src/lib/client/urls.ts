@@ -54,14 +54,6 @@ export function apiUrl(path: string) {
   return new URL(trimLeadingSlash(path), getBrowserBaseUrl()).toString();
 }
 
-export function isHomeAssistantIngress() {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  return window.location.pathname.includes('/api/hassio_ingress/');
-}
-
 export function apiWebSocketUrl(path: string) {
   if (typeof window === 'undefined') {
     return path;
