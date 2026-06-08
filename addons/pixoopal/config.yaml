@@ -10,6 +10,7 @@ startup: application
 boot: auto
 image: drun555/pixoopal
 hassio_api: true
+homeassistant_api: true
 ingress: true
 ingress_port: 5173
 ingress_stream: true
