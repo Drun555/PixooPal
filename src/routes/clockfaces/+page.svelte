@@ -12,6 +12,7 @@
     updatedAt?: string;
     pictureUrl?: string;
     sourceFiles?: string[];
+    tags: string[];
     installed: boolean;
     outdated: boolean;
   };
@@ -241,6 +242,10 @@
     return file.path.replace(/^\.?\/*src\/[^/]+\//, '');
   }
 
+  function tagClass(tag: string) {
+    return tag.toLowerCase() === 'home assistant' ? 'tag-home-assistant' : 'tag-default';
+  }
+
   onMount(() => {
     refreshCatalog();
   });
@@ -289,6 +294,9 @@
                 {#if clockface.outdated}
                   <span class="status-pill">Update</span>
                 {/if}
+                {#each clockface.tags ?? [] as tag}
+                  <span class={`status-pill tag ${tagClass(tag)}`}>{tag}</span>
+                {/each}
               </div>
             </div>
             <p>{clockface.description || 'No description.'}</p>
@@ -594,6 +602,16 @@
   .status-pill.installed {
     color: #dce7f2;
     background: rgba(255, 255, 255, 0.1);
+  }
+
+  .status-pill.tag {
+    color: #dce7f2;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .status-pill.tag-home-assistant {
+    color: #072033;
+    background: #75c9ff;
   }
 
   .status-pills {

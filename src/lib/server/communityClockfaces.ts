@@ -16,6 +16,7 @@ export type CommunityClockfaceCatalogItem = {
   pictureUrl?: string;
   source?: string;
   sourceFiles?: string[];
+  tags: string[];
   installed: boolean;
   outdated: boolean;
 };
@@ -61,6 +62,7 @@ type CommunityManifestClockface = {
   picture?: unknown;
   source?: unknown;
   sourceFiles?: unknown;
+  tags?: unknown;
 };
 
 type InstalledManifest = {
@@ -288,6 +290,7 @@ function parseCommunityClockface(value: unknown): CommunityClockfaceCatalogItem 
     picture: normalizeRelativePath(stringValue(clockface.picture)),
     source: normalizeRelativePath(stringValue(clockface.source)),
     sourceFiles: normalizeSourceFiles(clockface.sourceFiles, id),
+    tags: normalizeTags(clockface.tags),
     installed: false,
     outdated: false
   };
@@ -457,6 +460,18 @@ function normalizeSourceFiles(value: unknown, id: string) {
     .filter((item) => item.startsWith(sourcePrefix));
 
   return files.length > 0 ? [...new Set(files)] : undefined;
+}
+
+function normalizeTags(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const tags = value
+    .map((item) => stringValue(item))
+    .filter((item): item is string => Boolean(item));
+
+  return [...new Set(tags)];
 }
 
 function getSourceLanguage(extension: string) {
