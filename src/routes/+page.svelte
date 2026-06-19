@@ -75,6 +75,7 @@
     id: string;
     friendlyName: string;
     options?: { value: string; label: string }[];
+    keyCodes?: string[];
     accept?: string;
     min?: number;
     max?: number;
@@ -175,6 +176,8 @@
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
+  $: activeClockfaceShortcutInputs =
+    activeClockface?.inputs.flat().filter((input) => (input.keyCodes?.length ?? 0) > 0) ?? [];
 
   $: pixooAddressConfigured = Boolean(status?.config?.pixooHost || pixooAddress);
   $: syncRecoveryDeadline(status?.recovery);
@@ -719,7 +722,49 @@
     };
   }
 
+  function handleClockfaceKeydown(event: KeyboardEvent) {
+    if (
+      !activeClockface ||
+      event.defaultPrevented ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      isEditableKeyboardTarget(event.target)
+    ) {
+      return;
+    }
+
+    const input = activeClockfaceShortcutInputs.find((item) => matchesInputKeyCode(item, event));
+
+    if (!input) {
+      return;
+    }
+
+    event.preventDefault();
+    submitClockfaceInput(input.id, activeClockface.data[input.id] ?? '');
+  }
+
+  function matchesInputKeyCode(input: ClockfaceInputView, event: KeyboardEvent) {
+    return input.keyCodes?.some((keyCode) => keyCode === event.code || keyCode === event.key) === true;
+  }
+
+  function isEditableKeyboardTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    const tagName = target.tagName.toLowerCase();
+    return (
+      target.isContentEditable ||
+      tagName === 'input' ||
+      tagName === 'select' ||
+      tagName === 'textarea'
+    );
+  }
+
   onMount(() => {
+    window.addEventListener('keydown', handleClockfaceKeydown);
+
     previewSrc = apiWebSocketUrl('/api/v1/preview.ws');
     previewFallbackSrc = apiUrl('/api/v1/preview.mjpeg');
 
@@ -736,6 +781,7 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener('keydown', handleClockfaceKeydown);
     clearTimeout(previewReconnectTimer);
     clearTimeout(recoveryTimer);
     previewSocket?.close();
@@ -1762,34 +1808,155 @@
 
   @media (max-width: 860px) {
     .shell {
-      padding-top: 18px;
+      width: min(100% - 24px, 560px);
+      min-height: auto;
+      padding: 16px 0 28px;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .pixoo-status-card {
+      grid-template-columns: 1fr;
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .status-connection {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      justify-content: stretch;
+      gap: 4px 10px;
+    }
+
+    .address-status {
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: end;
+      max-width: 44vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status-address {
+      grid-column: 1;
+      grid-row: 1;
+      max-width: none;
+    }
+
+    .connection-note {
+      grid-column: 1 / -1;
+    }
+
+    .status-actions {
+      justify-content: space-between;
     }
 
     .desktop-surface {
       grid-template-columns: 1fr;
       height: auto;
       min-height: 0;
-      padding: 12px;
+      gap: 12px;
+      padding: 0;
+      border-radius: 0;
     }
 
     .desktop-column {
-      min-height: auto;
+      min-height: 0;
     }
 
-    .clockface-carousel {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    .clockface-column,
+    .controls-column {
+      padding: 10px;
+      border-radius: 12px;
     }
 
     .clockface-column {
       overflow: visible;
     }
 
-    .notification-form {
-      grid-template-columns: 1fr;
+    .clockface-carousel {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(86px, 29%);
+      grid-template-columns: none;
+      flex: 0 0 auto;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 2px;
+      scroll-snap-type: x proximity;
+      scrollbar-width: none;
+    }
+
+    .clockface-carousel::-webkit-scrollbar {
+      display: none;
+    }
+
+    .clockface-card {
+      min-height: 0;
+      scroll-snap-align: start;
+    }
+
+    .clockface-card-copy strong {
+      font-size: 0.68rem;
+    }
+
+    .clockface-column .clockface-panel {
+      padding-top: 8px;
+    }
+
+    .preview-column {
+      min-height: min(76vw, 440px);
+      order: -1;
     }
 
     .controls-column {
-      display: flex;
+      display: grid;
+      gap: 10px;
+    }
+
+    .controls-column > section {
+      height: auto;
+    }
+
+    .device-controls {
+      gap: 10px;
+    }
+
+    .control-block,
+    .notification-panel,
+    .clockface-panel {
+      padding: 12px;
+    }
+
+    .notification-form {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .shell {
+      width: calc(100% - 18px);
+      padding-top: 12px;
+    }
+
+    .pixoo-status-card,
+    .clockface-column,
+    .controls-column {
+      padding: 9px;
+    }
+
+    .clockface-carousel {
+      grid-auto-columns: minmax(78px, 32%);
+      gap: 7px;
+    }
+
+    .clockface-card {
+      padding: 4px;
+    }
+
+    .preview-column {
+      min-height: calc(100vw - 18px);
     }
   }
 </style>

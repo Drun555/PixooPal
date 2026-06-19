@@ -701,17 +701,19 @@ function toClockfaceInputView({
   type,
   id,
   friendlyName,
+  keyCodes,
   options,
   accept,
   min,
   max,
   step,
   isSetting
-}: ClockfaceInput): ClockfaceInputView {
+}: ClockfaceInputView): ClockfaceInputView {
   return {
     type,
     id,
     friendlyName,
+    keyCodes,
     options,
     accept,
     min,

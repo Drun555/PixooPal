@@ -251,12 +251,17 @@
 
   @media (max-width: 860px) {
     .preview-stage {
-      min-height: 0;
+      height: auto;
+      min-height: inherit;
+      container-type: inline-size;
       padding: 8px 0;
+      place-items: center;
     }
 
     .preview-shell {
       width: min(100%, 500px);
+      height: auto;
+      aspect-ratio: 1;
     }
 
     .pixoo-frame {

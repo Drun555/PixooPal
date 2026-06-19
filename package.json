@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@lucide/svelte": "latest",
-    "@pixoopal/clockface": "^0.2.2",
+    "@pixoopal/clockface": "^0.2.4",
     "@types/ws": "^8.18.1",
     "aedes": "^1.0.2",
     "bonjour-service": "^1.4.0",

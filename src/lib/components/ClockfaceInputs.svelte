@@ -7,6 +7,7 @@
     id: string;
     friendlyName: string;
     options?: { value: string; label: string }[];
+    keyCodes?: string[];
     accept?: string;
     min?: number;
     max?: number;
