@@ -15,6 +15,8 @@ export type PixooPalEvent =
   | { type: 'clockface_changed'; activeId: string; clockface: unknown }
   | { type: 'clockface_data_changed'; activeId: string; data: Record<string, string> }
   | { type: 'device_status'; reachable: boolean; status: unknown }
+  | { type: 'pixoo_reachability'; reachable: boolean; recovery: unknown; message?: string }
+  | { type: 'recovery_status'; recovery: unknown }
   | { type: 'notification'; message: string; beep: boolean };
 
 type PreviewFrameListener = (frame: PreviewFrame) => void;

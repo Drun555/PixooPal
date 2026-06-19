@@ -5,7 +5,7 @@ export function GET() {
   const config = getRuntimeConfig();
 
   console.log(
-    `[PixooPal] API config GET: pixooHost=${config.pixooHost || '(empty)'}, webuiPort=${config.webuiPort || '(empty)'}`
+    `[PixooPal] API config GET: pixooHost=${config.pixooHost || '(empty)'}, webuiPort=${config.webuiPort || '(empty)'}, resolution=${config.resolution}`
   );
 
   return json({

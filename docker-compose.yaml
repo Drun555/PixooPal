@@ -5,14 +5,21 @@ services:
     restart: unless-stopped
     ports:
       - "5173:5173"
+      - "443:443"
+      - "1883:1883"
     environment:
-      PIXOO_DEVICE_ADDRESS: ${PIXOO_DEVICE_ADDRESS:-192.168.6.3}
-      PIXOOPAL_INSTANCE_NAME: ${PIXOOPAL_INSTANCE_NAME:-PixooPal}
-      PORT: "5173"
-      DEBUG_LOGGING: ${DEBUG_LOGGING:-false}
+      PIXOO_DEVICE_ADDRESS: 192.168.6.3
+      PIXOOPAL_INSTANCE_NAME: PixooPal
+      HOME_ASSISTANT_URL: http://192.168.5.10:8123
+      HOME_ASSISTANT_TOKEN: "xxx"
+      HTTP_PORT: "5173"
+      HTTPS_PORT: "443"
+      PIXOOPAL_HOST_IP: 192.168.6.10
+      RESOLUTION: "64"
+      DEBUG_LOGGING: false
       BODY_SIZE_LIMIT: "25M"
     volumes:
-      - ./pixoopal-data:/data
+      - ./data:/data
     logging:
       driver: local
       options:

@@ -20,7 +20,7 @@ let instanceState: InstanceState | null = null;
 export function getPixooPalDiscoveryInfo(origin?: string) {
   const instance = getInstanceState();
   const config = getRuntimeConfig();
-  const port = Number.parseInt(env.PORT ?? '5173', 10);
+  const port = Number.parseInt(env.HTTP_PORT ?? env.PORT ?? '5173', 10);
   const baseUrl = origin || '';
 
   return {

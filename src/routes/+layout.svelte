@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import { appPath, appRoutePath } from '$lib/client/urls';
 
@@ -11,6 +12,19 @@
     const pathname = appRoutePath(page.url.pathname);
     return href === '/' ? pathname === '/' : pathname.startsWith(href);
   }
+
+  onNavigate((navigation) => {
+    if (!('startViewTransition' in document)) {
+      return;
+    }
+
+    return new Promise<void>((resolve) => {
+      document.startViewTransition(async () => {
+        resolve();
+        await navigation.complete;
+      });
+    });
+  });
 </script>
 
 <div class="app-shell">
@@ -73,5 +87,22 @@
     color: #07110f;
     border-color: transparent;
     background: #76dcca;
+  }
+
+  @view-transition {
+    navigation: auto;
+  }
+
+  :global(::view-transition-old(root)),
+  :global(::view-transition-new(root)) {
+    animation-duration: 180ms;
+    animation-timing-function: ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(::view-transition-old(root)),
+    :global(::view-transition-new(root)) {
+      animation-duration: 1ms;
+    }
   }
 </style>

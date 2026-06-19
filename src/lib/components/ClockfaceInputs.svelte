@@ -65,7 +65,7 @@
   }
 
   function disablesWhileBusy(input: ClockfaceInputView) {
-    return input.type !== 'button';
+    return input.type === 'input-file';
   }
 
   function submit(id: string, value: string) {
@@ -127,7 +127,7 @@
         class:active={settingsOpen}
         class="settings-button"
         type="button"
-        aria-label="Настройки Clockface"
+        aria-label="Settings of the Clockface"
         aria-expanded={settingsOpen}
         onclick={() => {
           settingsOpen = !settingsOpen;
@@ -139,10 +139,10 @@
       {#if settingsOpen}
         <div class="settings-popover">
           <div class="settings-head">
-            <strong>Настройки</strong>
+            <strong>Settings</strong>
             <button
               type="button"
-              aria-label="Закрыть настройки"
+              aria-label="Close Settings"
               onclick={() => {
                 settingsOpen = false;
               }}
@@ -181,7 +181,7 @@
       <span>{input.friendlyName}</span>
       <select
         value={valueFor(input.id)}
-        disabled={isBusy(input.id)}
+        disabled={disablesWhileBusy(input) && isBusy(input.id)}
         onchange={(event) => submitChange(input.id, event.currentTarget.value)}
       >
         {#each input.options ?? [] as option}
@@ -211,7 +211,7 @@
         max={input.max}
         step={input.step}
         value={valueFor(input.id)}
-        disabled={isBusy(input.id)}
+        disabled={disablesWhileBusy(input) && isBusy(input.id)}
         oninput={(event) => submitChange(input.id, event.currentTarget.value)}
       />
     </label>

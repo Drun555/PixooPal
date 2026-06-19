@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import './load-env.mjs';
 import { applyRuntimeEnv, parseRuntimeArgs, printRuntimeHelp } from './runtime-args.mjs';
 
 const parsed = parseRuntimeArgs(process.argv.slice(2));
@@ -18,8 +19,8 @@ const args = [
   process.env.HOST ?? '0.0.0.0'
 ];
 
-if (process.env.PORT) {
-  args.push('--port', process.env.PORT);
+if (process.env.HTTP_PORT) {
+  args.push('--port', process.env.HTTP_PORT);
 }
 
 args.push(...parsed.forwarded);

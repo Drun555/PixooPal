@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import './load-env.mjs';
 
 const OPTIONS_PATH = '/data/options.json';
 const APP_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -21,7 +22,9 @@ const COMMUNITY_CLOCKFACES_NODE_MODULES_PATH = join(COMMUNITY_CLOCKFACES_DATA_PA
 process.chdir(APP_ROOT);
 
 process.env.HOST ??= '0.0.0.0';
-process.env.PORT ||= '5173';
+process.env.HTTP_PORT ||= process.env.PORT || '5173';
+process.env.PORT = process.env.HTTP_PORT;
+process.env.RESOLUTION ||= '64';
 
 logStartupEnvironment();
 linkProjectDataToDockerVolume();
@@ -52,10 +55,23 @@ if (existsSync(OPTIONS_PATH)) {
     console.log(`[PixooPal] Debug logging loaded from Home Assistant options: ${process.env.DEBUG_LOGGING}`);
   }
 
+  const resolution = normalizeResolutionOption(options.resolution ?? options.RESOLUTION);
+
+  if (resolution) {
+    process.env.RESOLUTION = resolution;
+    console.log(`[PixooPal] Resolution loaded from Home Assistant options: ${process.env.RESOLUTION}`);
+  }
+
   const homeAssistantUrl = normalizeOption(
     options.home_assistant_url ?? options.home_assistant_address
   );
   const homeAssistantToken = normalizeOption(options.home_assistant_token);
+  const pixoopalHostIp = normalizeOption(
+    options.pixoopal_host_ip ??
+      options.PIXOOPAL_HOST_IP ??
+      options.mitm_mqtt_ip_host ??
+      options.MITM_MQTT_IP_HOST
+  );
 
   if (homeAssistantUrl) {
     process.env.HOME_ASSISTANT_URL = homeAssistantUrl;
@@ -66,12 +82,18 @@ if (existsSync(OPTIONS_PATH)) {
     process.env.HOME_ASSISTANT_TOKEN = homeAssistantToken;
     console.log('[PixooPal] Home Assistant token loaded from options.');
   }
+
+  if (pixoopalHostIp) {
+    process.env.PIXOOPAL_HOST_IP = pixoopalHostIp;
+    process.env.MITM_MQTT_IP_HOST = pixoopalHostIp;
+    console.log(`[PixooPal] PixooPal host IP loaded from options: ${pixoopalHostIp}`);
+  }
 } else {
   console.warn(`[PixooPal] Home Assistant options file was not found at ${OPTIONS_PATH}.`);
 }
 
 console.log(
-  `[PixooPal] Effective configuration before server start: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS || '(empty)'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS || '(empty)'}, PORT=${process.env.PORT}, HOST=${process.env.HOST}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}, HOME_ASSISTANT_URL=${process.env.HOME_ASSISTANT_URL || '(empty)'}, HOME_ASSISTANT_TOKEN=${process.env.HOME_ASSISTANT_TOKEN ? 'set' : 'empty'}, SUPERVISOR_TOKEN=${process.env.SUPERVISOR_TOKEN ? 'set' : 'empty'}`
+  `[PixooPal] Effective configuration before server start: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS || '(empty)'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS || '(empty)'}, HTTP_PORT=${process.env.HTTP_PORT}, HTTPS_PORT=${process.env.HTTPS_PORT || '(empty)'}, HOST=${process.env.HOST}, RESOLUTION=${process.env.RESOLUTION || '(empty)'}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}, HOME_ASSISTANT_URL=${process.env.HOME_ASSISTANT_URL || '(empty)'}, HOME_ASSISTANT_TOKEN=${process.env.HOME_ASSISTANT_TOKEN ? 'set' : 'empty'}, SUPERVISOR_TOKEN=${process.env.SUPERVISOR_TOKEN ? 'set' : 'empty'}, PIXOOPAL_HOST_IP=${process.env.PIXOOPAL_HOST_IP || process.env.MITM_MQTT_IP_HOST || '(empty)'}, MQTT_LISTEN_PORT=1883`
 );
 
 await import('./server.mjs');
@@ -90,13 +112,19 @@ function normalizeOption(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
+function normalizeResolutionOption(value) {
+  const normalized = typeof value === 'number' ? String(value) : normalizeOption(value);
+
+  return ['16', '32', '64'].includes(normalized) ? normalized : '';
+}
+
 function logStartupEnvironment() {
   console.log(
     `[PixooPal] Starting Docker entrypoint as uid=${typeof process.getuid === 'function' ? process.getuid() : 'unknown'}, gid=${typeof process.getgid === 'function' ? process.getgid() : 'unknown'}`
   );
   console.log(`[PixooPal] App root: ${APP_ROOT}; cwd: ${process.cwd()}; project data: ${PROJECT_DATA_PATH}`);
   console.log(
-    `[PixooPal] Runtime env presence: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS ? 'set' : 'empty'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS ? 'set' : 'empty'}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}, HOME_ASSISTANT_URL=${process.env.HOME_ASSISTANT_URL ? 'set' : 'empty'}, HOME_ASSISTANT_TOKEN=${process.env.HOME_ASSISTANT_TOKEN ? 'set' : 'empty'}, SUPERVISOR_TOKEN=${process.env.SUPERVISOR_TOKEN ? 'set' : 'empty'}`
+    `[PixooPal] Runtime env presence: PIXOO_DEVICE_ADDRESS=${process.env.PIXOO_DEVICE_ADDRESS ? 'set' : 'empty'}, PIXOO_ADDRESS=${process.env.PIXOO_ADDRESS ? 'set' : 'empty'}, HTTP_PORT=${process.env.HTTP_PORT || '(empty)'}, HTTPS_PORT=${process.env.HTTPS_PORT || '(empty)'}, RESOLUTION=${process.env.RESOLUTION || '(empty)'}, DEBUG_LOGGING=${process.env.DEBUG_LOGGING || '(empty)'}, HOME_ASSISTANT_URL=${process.env.HOME_ASSISTANT_URL ? 'set' : 'empty'}, HOME_ASSISTANT_TOKEN=${process.env.HOME_ASSISTANT_TOKEN ? 'set' : 'empty'}, SUPERVISOR_TOKEN=${process.env.SUPERVISOR_TOKEN ? 'set' : 'empty'}, PIXOOPAL_HOST_IP=${process.env.PIXOOPAL_HOST_IP || process.env.MITM_MQTT_IP_HOST ? 'set' : 'empty'}, MQTT_LISTEN_PORT=1883`
   );
 }
 

@@ -6,6 +6,8 @@ import { getHomeAssistantStatus } from '$lib/server/homeAssistant';
 import { getPixooRecoveryState, getPixooSettings } from '$lib/server/pixoo';
 import { publishPixooPalEvent } from '$lib/server/previewStream';
 
+const PIXOO_UNREACHABLE_MESSAGE = 'Pixoo is unreachable.';
+
 export const GET: RequestHandler = async () => {
   const config = getRuntimeConfig();
   const clockfaces = await getClockfacesView();
@@ -57,7 +59,7 @@ export const GET: RequestHandler = async () => {
 
     return json(body);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Could not reach Pixoo.';
+    const message = getPixooStatusErrorMessage(error);
     const body = {
       ok: false,
       reachable: false,
@@ -79,3 +81,21 @@ export const GET: RequestHandler = async () => {
     return json(body, { status: 503 });
   }
 };
+
+function getPixooStatusErrorMessage(error: unknown) {
+  if (isAbortError(error)) {
+    return PIXOO_UNREACHABLE_MESSAGE;
+  }
+
+  const message = error instanceof Error ? error.message : '';
+
+  if (!message || message === 'This operation was aborted' || message === 'fetch failed') {
+    return PIXOO_UNREACHABLE_MESSAGE;
+  }
+
+  return message;
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && (error.name === 'AbortError' || error.message === 'This operation was aborted');
+}

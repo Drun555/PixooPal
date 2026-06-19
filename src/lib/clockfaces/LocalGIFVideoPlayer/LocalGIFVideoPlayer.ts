@@ -11,12 +11,13 @@ import {
   MIN_GIF_PLAYBACK_SPEED,
   normalizeGifPlaybackSpeed
 } from '@pixoopal/clockface/media';
+import { getRuntimeResolution } from '$lib/server/config';
 
 let media: ClockfaceFileInputValue | undefined;
 let mediaType: MediaType = 'gif';
 
 export default defineClockface({
-  resolution: 64,
+  resolution: () => getRuntimeResolution(),
   frameQueueSize: 5,
   data: {
     fileName: data.string(''),

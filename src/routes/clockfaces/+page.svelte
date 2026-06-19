@@ -1,6 +1,7 @@
 <script lang="ts">
   import { AlertTriangle, Download, RefreshCw, Trash2, X } from '@lucide/svelte';
   import { onMount } from 'svelte';
+  import { fade, scale } from 'svelte/transition';
   import { apiUrl } from '$lib/client/urls';
 
   type CommunityClockface = {
@@ -309,7 +310,11 @@
             disabled={detailState[clockface.id] === 'busy'}
             onclick={() => openReview(clockface)}
           >
-            <Download size={16} />
+            {#if detailState[clockface.id] === 'busy'}
+              <RefreshCw class="spinner" size={16} />
+            {:else}
+              <Download size={16} />
+            {/if}
             <span>{reviewLabel(clockface)}</span>
           </button>
         </article>
@@ -321,6 +326,7 @@
 {#if selectedClockface}
   <div
     class="modal-backdrop"
+    transition:fade={{ duration: 180 }}
     role="button"
     tabindex="0"
     aria-label="Close clockface source review"
@@ -329,6 +335,7 @@
   >
     <div
       class="review-modal"
+      transition:scale={{ duration: 190, start: 0.97 }}
       aria-label="Clockface source review"
       role="dialog"
       tabindex="-1"
@@ -573,11 +580,9 @@
   }
 
   .title-row {
-    display: flex;
+    display: grid;
     min-width: 0;
-    align-items: start;
-    justify-content: space-between;
-    gap: 8px;
+    gap: 7px;
   }
 
   .card-body h2 {
@@ -585,18 +590,25 @@
     margin: 0;
     color: #f8fbff;
     font-size: 1.02rem;
+    line-height: 1.2;
     letter-spacing: 0;
     overflow-wrap: anywhere;
   }
 
   .status-pill {
+    display: inline-flex;
     flex: 0 0 auto;
-    padding: 3px 7px;
+    min-height: 25px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
     border-radius: 999px;
     color: #07110f;
     background: #ffd36e;
     font-size: 0.72rem;
     font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
   }
 
   .status-pill.installed {
@@ -616,9 +628,9 @@
 
   .status-pills {
     display: flex;
-    flex: 0 0 auto;
     flex-wrap: wrap;
-    justify-content: end;
+    align-items: center;
+    justify-content: start;
     gap: 5px;
   }
 
@@ -638,6 +650,16 @@
 
   .clockface-card button {
     margin: 14px;
+  }
+
+  .spinner {
+    animation: spin 900ms linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .install-button.danger {
@@ -920,6 +942,12 @@
 
     .side-picture {
       max-width: 180px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
     }
   }
 </style>

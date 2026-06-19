@@ -1,7 +1,7 @@
 {
   "entry": "./LocalGIFVideoPlayer.ts",
-  "name": "Local GIF / Video Player",
-  "description": "Plays a locally uploaded GIF or video on the Pixoo display.",
+  "name": "Local Player",
+  "description": "Plays a locally uploaded GIF, video or picture on the Pixoo display.",
   "picture": "./picture.png",
   "author": "Drun555"
 }

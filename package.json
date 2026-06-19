@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node ./scripts/run-dev.mjs",
     "build:emoji": "node ./scripts/build-dotto-emoji.mjs",
-    "build": "vite build",
+    "build": "vite build && node ./scripts/build-mqtt-runtime.mjs",
     "preview": "node ./scripts/run-preview.mjs",
     "release": "node ./scripts/release.mjs",
     "start": "node ./scripts/run-start.mjs",
@@ -16,7 +16,9 @@
     "@lucide/svelte": "latest",
     "@pixoopal/clockface": "^0.2.2",
     "@types/ws": "^8.18.1",
+    "aedes": "^1.0.2",
     "bonjour-service": "^1.4.0",
+    "dotenv": "^17.4.2",
     "gifuct-js": "^2.1.2",
     "pureimage": "^0.4.18",
     "sharp": "^0.34.5",

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import './load-env.mjs';
 import { applyRuntimeEnv, parseRuntimeArgs, printRuntimeHelp } from './runtime-args.mjs';
 
 const parsed = parseRuntimeArgs(process.argv.slice(2));

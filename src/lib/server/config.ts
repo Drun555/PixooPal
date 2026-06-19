@@ -8,8 +8,15 @@ export type RuntimeConfig = {
   pixooAddress: string;
   pixooHost: string;
   pixooPostUrl: string;
+  resolution: RuntimeResolution;
   webuiPort: string;
+  webuiHttpsPort: string;
 };
+
+export type RuntimeResolution = 16 | 32 | 64;
+
+const DEFAULT_RESOLUTION: RuntimeResolution = 64;
+const SUPPORTED_RESOLUTIONS = [16, 32, 64] as const;
 
 let runtimePixooAddress = '';
 let lastLoggedRuntimeConfigSignature = '';
@@ -54,6 +61,7 @@ export function normalizeHomeAssistantUrl(address: string) {
 export function getRuntimeConfig(): RuntimeConfig {
   const pixooAddress = runtimePixooAddress || env.PIXOO_DEVICE_ADDRESS || env.PIXOO_ADDRESS || '';
   const pixooHost = normalizePixooHost(pixooAddress);
+  const resolution = getRuntimeResolution();
   const supervisorTokenConfigured = Boolean(env.SUPERVISOR_TOKEN);
   const homeAssistantTokenConfigured = supervisorTokenConfigured || Boolean(env.HOME_ASSISTANT_TOKEN);
   const homeAssistantUrl = supervisorTokenConfigured
@@ -67,12 +75,29 @@ export function getRuntimeConfig(): RuntimeConfig {
     pixooAddress,
     pixooHost,
     pixooPostUrl: pixooHost ? `http://${pixooHost}/post` : '',
-    webuiPort: env.PORT ?? ''
+    resolution,
+    webuiPort: env.HTTP_PORT ?? env.PORT ?? '',
+    webuiHttpsPort: env.HTTPS_PORT ?? ''
   };
 
   logRuntimeConfig(config);
 
   return config;
+}
+
+export function getRuntimeResolution() {
+  return normalizeRuntimeResolution(env.RESOLUTION);
+}
+
+export function normalizeRuntimeResolution(value: unknown): RuntimeResolution {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value.trim(), 10)
+        : Number.NaN;
+
+  return SUPPORTED_RESOLUTIONS.find((resolution) => resolution === parsed) ?? DEFAULT_RESOLUTION;
 }
 
 export function setRuntimePixooAddress(address: string) {
@@ -104,7 +129,7 @@ function logRuntimeConfig(config: RuntimeConfig) {
       : env.PIXOO_ADDRESS
         ? 'PIXOO_ADDRESS'
         : 'empty';
-  const signature = `${source}|${config.pixooHost}|${config.webuiPort}|${config.homeAssistantUrl}|${config.homeAssistantTokenConfigured}`;
+  const signature = `${source}|${config.pixooHost}|${config.webuiPort}|${config.webuiHttpsPort}|${config.resolution}|${config.homeAssistantUrl}|${config.homeAssistantTokenConfigured}`;
 
   if (signature === lastLoggedRuntimeConfigSignature) {
     return;
@@ -112,6 +137,6 @@ function logRuntimeConfig(config: RuntimeConfig) {
 
   lastLoggedRuntimeConfigSignature = signature;
   console.log(
-    `[PixooPal] Runtime config resolved: source=${source}, pixooHost=${config.pixooHost || '(empty)'}, webuiPort=${config.webuiPort || '(empty)'}, homeAssistantUrl=${config.homeAssistantUrl || '(empty)'}, homeAssistantToken=${config.homeAssistantTokenConfigured ? 'set' : 'empty'}`
+    `[PixooPal] Runtime config resolved: source=${source}, pixooHost=${config.pixooHost || '(empty)'}, webuiPort=${config.webuiPort || '(empty)'}, webuiHttpsPort=${config.webuiHttpsPort || '(empty)'}, resolution=${config.resolution}, homeAssistantUrl=${config.homeAssistantUrl || '(empty)'}, homeAssistantToken=${config.homeAssistantTokenConfigured ? 'set' : 'empty'}`
   );
 }

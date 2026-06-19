@@ -16,7 +16,10 @@ import {
   pushPixelBuffer,
   setCustomChannel,
   setScreen,
+  startPixooReachabilityMonitor,
+  stopPixooReachabilityMonitor,
   subscribePixooPower,
+  subscribePixooReachability,
   subscribePixooRecovery,
   getPixooFrameSettleMs,
   type PixooFramePushMetrics
@@ -25,6 +28,7 @@ import { publishPixooPalEvent, publishPreviewFrame } from './previewStream';
 import { fileClockfacePersistenceStore } from './clockfacePersistence';
 import { getCommunityClockfacesDebugInfo, getInstalledCommunityClockfaces } from './communityClockfaces';
 import { getClockfaceHomeAssistantClient } from './homeAssistant';
+import { getFavoriteClockfaceId, setFavoriteClockfaceId } from './preferences';
 import { debugLog } from './debug';
 
 export type ClockfaceInputView = Omit<ClockfaceInput, 'onSubmit'>;
@@ -35,6 +39,7 @@ export type ClockfaceView = {
   name: string;
   description?: string;
   picture?: string;
+  pictureUrl?: string;
   resolution: number;
   updateIntervalMs: number;
   data: Record<string, string>;
@@ -69,12 +74,14 @@ type ClockfaceEntry = {
   name: string;
   description?: string;
   picture?: string;
+  pictureUrl?: string;
   instance: Clockface;
   source: 'bundled' | 'community';
 };
 
 type ClockfaceRunner = {
   id: string;
+  instance?: Clockface;
   stopped: boolean;
   pendingFrames: ClockfaceFrame[];
   nextPushAt?: number;
@@ -145,8 +152,8 @@ type ClockfaceBenchmarkCollector = {
   lastPushStartedAt?: number;
 };
 
-const PIXOO_NATIVE_SIZE = 64;
 const CLOCKFACE_FRAME_BUFFER_SIZE = 5;
+const PIXOO_NATIVE_SIZE = 64;
 const SERVICE_CLOCKFACE_ID = '__pixoopal_service_clockface__';
 const SERVICE_CLOCKFACE_HOLD_MS = 500;
 
@@ -157,6 +164,7 @@ type ClockfaceRuntimeState = {
   dispose?: () => void;
   controlUnsubscribe?: () => void;
   powerUnsubscribe?: () => void;
+  reachabilityUnsubscribe?: () => void;
   pushQueue?: Promise<void>;
   recoveryTimer?: ReturnType<typeof setTimeout>;
   recoveryUnsubscribe?: () => void;
@@ -177,6 +185,11 @@ const manifests = import.meta.glob<ClockfaceManifest>('../clockfaces/*/manifest.
 const modules = import.meta.glob<ClockfaceModule>('../clockfaces/**/*.ts', {
   eager: true
 });
+const pictureAssets = import.meta.glob<string>('../clockfaces/**/*.{gif,jpg,jpeg,png,webp}', {
+  eager: true,
+  import: 'default',
+  query: '?url'
+});
 
 const bundledClockfaces: ClockfaceEntry[] = Object.entries(manifests)
   .map(([manifestPath, manifest]) => {
@@ -193,6 +206,7 @@ const bundledClockfaces: ClockfaceEntry[] = Object.entries(manifests)
       name: normalizeOptionalManifestString(manifest.name) ?? getClockfaceName(id),
       description: normalizeOptionalManifestString(manifest.description),
       picture: normalizeOptionalManifestString(manifest.picture),
+      pictureUrl: getManifestPictureUrl(manifestPath, manifest),
       instance: module.default,
       source: 'bundled' as const
     };
@@ -214,6 +228,7 @@ clockfaceRuntimeState.pushQueue ??= Promise.resolve();
 let disposed = false;
 
 clockfaceRuntimeState.dispose = disposeClockfaces;
+startPixooReachabilityMonitor();
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
@@ -232,8 +247,22 @@ if (!clockfaceRuntimeState.signalsRegistered) {
 }
 
 clockfaceRuntimeState.recoveryUnsubscribe = subscribePixooRecovery((recovery) => {
+  publishPixooPalEvent({
+    type: 'recovery_status',
+    recovery
+  });
+
   scheduleServiceClockfaceRecovery(recovery.drawCooldownRemainingMs).catch((error) => {
     console.error('Clockface service recovery failed:', error);
+  });
+});
+
+clockfaceRuntimeState.reachabilityUnsubscribe = subscribePixooReachability((recovery, message) => {
+  publishPixooPalEvent({
+    type: 'pixoo_reachability',
+    reachable: recovery.reachable,
+    recovery,
+    message
   });
 });
 
@@ -264,25 +293,20 @@ clockfaceRuntimeState.controlUnsubscribe = subscribePixooPalControl(async (contr
 refreshActiveClockfaceInBackground();
 
 export async function refreshCommunityClockfaces() {
-  const previousActiveId = getActiveClockfaceId();
   communityClockfacesReady = refreshInstalledCommunityClockfaces();
   await communityClockfacesReady;
 
-  if (previousActiveId && !clockfaces.some((clockface) => clockface.id === previousActiveId)) {
-    await stopActiveClockface();
-    clockfaceRuntimeState.activeClockfaceId = getInitialActiveClockfaceId();
-
-    if (!isClockfacesPaused()) {
-      await startActiveClockface(getActiveClockfaceId());
-    }
-  }
+  await ensureActiveClockfaceAvailable({ publishChange: true });
 }
 
 export async function getClockfacesView() {
   await waitForClockfaces();
+  await ensureActiveClockfaceAvailable();
+  const favoriteId = getExistingFavoriteClockfaceId();
 
   return {
     activeId: getActiveClockfaceId(),
+    favoriteId,
     clockfaces: await Promise.all(
       clockfaces.map(async ({ instance, source: _source, ...clockface }) => ({
         ...clockface,
@@ -295,6 +319,7 @@ export async function getClockfacesView() {
 
 export async function getActiveClockfacePreview() {
   await waitForClockfaces();
+  await ensureActiveClockfaceAvailable();
 
   const active = getActiveClockfaceEntry();
 
@@ -329,7 +354,25 @@ export async function setActiveClockface(id: string) {
   return view;
 }
 
+export async function setFavoriteClockface(id: string | null) {
+  await waitForClockfaces();
+
+  const favoriteId = id ? normalizeClockfaceId(id) : '';
+
+  if (favoriteId) {
+    getClockfaceEntry(favoriteId);
+    setFavoriteClockfaceId(favoriteId);
+  } else {
+    setFavoriteClockfaceId(null);
+  }
+
+  return getClockfacesView();
+}
+
 export async function submitClockfaceInput(id: string, value: ClockfaceInputValue) {
+  await waitForClockfaces();
+  await ensureActiveClockfaceAvailable();
+
   const clockface = getActiveClockfaceEntry();
   await clockface.instance.ready;
   await clockface.instance.submitInput(id, value);
@@ -359,6 +402,7 @@ export async function submitClockfaceInput(id: string, value: ClockfaceInputValu
 
 export async function refreshActiveClockface() {
   await waitForClockfaces();
+  await ensureActiveClockfaceAvailable();
 
   if (isClockfacesPaused() || !getActiveClockfaceId()) {
     return;
@@ -401,6 +445,7 @@ export function refreshActiveClockfaceInBackground() {
 
 export async function observeActiveClockface(durationMs: number) {
   await waitForClockfaces();
+  await ensureActiveClockfaceAvailable();
 
   if (clockfaceRuntimeState.benchmarkCollector) {
     throw new Error('Clockface benchmark is already running.');
@@ -469,12 +514,16 @@ export async function runWithClockfacesPaused<T>(operation: () => Promise<T>) {
     clockfaceRuntimeState.clockfacesPaused = false;
 
     if (!disposed && activeId) {
-      await startActiveClockface(activeId);
+      await ensureActiveClockfaceAvailable();
+      await startActiveClockface(getActiveClockfaceId());
     }
   }
 }
 
 export async function showNotification(text: string, beep: boolean) {
+  await waitForClockfaces();
+  await ensureActiveClockfaceAvailable();
+
   startNotification(text);
 
   if (beep) {
@@ -576,6 +625,7 @@ async function getActiveClockfaceView() {
     name: active.name,
     description: active.description,
     picture: active.picture,
+    pictureUrl: active.pictureUrl,
     ...(await toClockfaceView(active.instance))
   };
 }
@@ -585,13 +635,57 @@ function getActiveClockfaceEntry() {
 }
 
 function getClockfaceEntry(id: string) {
-  const clockface = clockfaces.find((item) => item.id === id);
+  const clockface = getClockfaceEntryOrUndefined(id);
 
   if (!clockface) {
     throw new Error(`Clockface "${id}" was not found.`);
   }
 
   return clockface;
+}
+
+function getClockfaceEntryOrUndefined(id: string) {
+  return clockfaces.find((item) => item.id === id);
+}
+
+async function ensureActiveClockfaceAvailable({
+  publishChange = false
+}: { publishChange?: boolean } = {}) {
+  const currentId = getActiveClockfaceId();
+
+  if (!currentId || getClockfaceEntryOrUndefined(currentId)) {
+    return;
+  }
+
+  const fallbackId = getInitialActiveClockfaceId();
+  debugLog('Active clockface is unavailable; switching to fallback.', {
+    currentId,
+    fallbackId
+  });
+  await stopActiveClockface();
+  clockfaceRuntimeState.activeClockfaceId = fallbackId;
+
+  if (fallbackId && !isClockfacesPaused()) {
+    await startActiveClockface(fallbackId);
+  }
+
+  if (!publishChange || !fallbackId) {
+    return;
+  }
+
+  const active = getClockfaceEntry(fallbackId);
+  publishPixooPalEvent({
+    type: 'clockface_changed',
+    activeId: fallbackId,
+    clockface: {
+      id: active.id,
+      name: active.name,
+      description: active.description,
+      picture: active.picture,
+      pictureUrl: active.pictureUrl,
+      ...(await toClockfaceView(active.instance))
+    }
+  });
 }
 
 async function toClockfaceView(clockface: Clockface) {
@@ -656,6 +750,7 @@ async function refreshInstalledCommunityClockfaces() {
             name: clockface.name,
             description: clockface.description,
             picture: clockface.pictureUrl,
+            pictureUrl: clockface.pictureUrl,
             instance: module.default,
             source: 'community'
           };
@@ -680,6 +775,7 @@ async function startActiveClockface(id: string) {
   const entry = getClockfaceEntry(id);
   const runner: ClockfaceRunner = {
     id,
+    instance: entry.instance,
     stopped: false,
     pendingFrames: [],
     nextFrameId: 1
@@ -712,17 +808,20 @@ async function stopActiveClockface() {
   runner.pendingFrames = [];
   clearTimeout(runner.timer);
   clockfaceRuntimeState.activeRunner = undefined;
-  await getClockfaceEntry(runner.id).instance.stop();
+  await (runner.instance ?? getClockfaceEntryOrUndefined(runner.id)?.instance)?.stop();
 }
 
 function disposeClockfaces() {
   disposed = true;
+  stopPixooReachabilityMonitor();
   clearTimeout(clockfaceRuntimeState.recoveryTimer);
   clockfaceRuntimeState.powerUnsubscribe?.();
+  clockfaceRuntimeState.reachabilityUnsubscribe?.();
   clockfaceRuntimeState.recoveryUnsubscribe?.();
   clockfaceRuntimeState.controlUnsubscribe?.();
   clockfaceRuntimeState.recoveryTimer = undefined;
   clockfaceRuntimeState.powerUnsubscribe = undefined;
+  clockfaceRuntimeState.reachabilityUnsubscribe = undefined;
   clockfaceRuntimeState.recoveryUnsubscribe = undefined;
   clockfaceRuntimeState.controlUnsubscribe = undefined;
 
@@ -736,7 +835,7 @@ function disposeClockfaces() {
   runner.pendingFrames = [];
   clearTimeout(runner.timer);
   clockfaceRuntimeState.activeRunner = undefined;
-  getClockfaceEntry(runner.id).instance.stop().catch((error) => {
+  (runner.instance ?? getClockfaceEntryOrUndefined(runner.id)?.instance)?.stop().catch((error) => {
     console.error('Clockface stop failed:', error);
   });
 }
@@ -848,10 +947,22 @@ function pushPendingFramesInBackground(runner: ClockfaceRunner) {
   runner.sending = true;
 
   pushPendingFrames(runner).catch((error) => {
-    console.error('Clockface push failed:', error);
+    if (isPixooScreenOffError(error)) {
+      console.warn('[PixooPal] Clockface push paused because Pixoo screen is off.');
+      pauseClockfaces({ publishPreview: false }).catch((pauseError) => {
+        console.error('Clockface pause after Pixoo screen off failed:', pauseError);
+      });
+      return;
+    }
+
+    console.warn(`[PixooPal] Clockface push failed: ${formatClockfacePushError(error)}`);
 
     if (isRunnerActive(runner)) {
-      scheduleNextFrame(runner, getClockfaceEntry(runner.id).instance);
+      const clockface = getClockfaceEntryOrUndefined(runner.id)?.instance ?? runner.instance;
+
+      if (clockface) {
+        scheduleNextFrame(runner, clockface);
+      }
     }
   });
 }
@@ -900,7 +1011,11 @@ async function pushPendingFrames(runner: ClockfaceRunner) {
       });
 
       if (isRunnerActive(runner)) {
-        scheduleNextFrame(runner, getClockfaceEntry(runner.id).instance);
+        const clockface = getClockfaceEntryOrUndefined(runner.id)?.instance ?? runner.instance;
+
+        if (clockface) {
+          scheduleNextFrame(runner, clockface);
+        }
       }
     }
   } finally {
@@ -1222,6 +1337,12 @@ async function scheduleServiceClockfaceRecovery(delayMs: number) {
       })
       .catch((error) => {
         clockfaceRuntimeState.serviceTransition = false;
+        if (isPixooScreenOffError(error)) {
+          clockfaceRuntimeState.clockfacesPaused = true;
+          console.warn('[PixooPal] Service clockface recovery skipped because Pixoo screen is off.');
+          return;
+        }
+
         clockfaceRuntimeState.clockfacesPaused = false;
         console.error('Clockface service recovery frame failed:', error);
         refreshActiveClockface().catch((refreshError) => {
@@ -1232,7 +1353,20 @@ async function scheduleServiceClockfaceRecovery(delayMs: number) {
 }
 
 function publishBlackPreview() {
-  const active = getActiveClockfaceEntry();
+  const active = getClockfaceEntryOrUndefined(getActiveClockfaceId()) ?? clockfaces[0];
+
+  if (!active) {
+    publishPreviewFrame({
+      activeId: '',
+      updateIntervalMs: 0,
+      preview: {
+        size: PIXOO_NATIVE_SIZE,
+        buffer: new Uint8Array(PIXOO_NATIVE_SIZE * PIXOO_NATIVE_SIZE * 3)
+      }
+    });
+    return;
+  }
+
   const size = active.instance.resolution;
 
   publishPreviewFrame({
@@ -1245,12 +1379,57 @@ function publishBlackPreview() {
   });
 }
 
+function isPixooScreenOffError(error: unknown) {
+  return error instanceof Error && error.message === 'Pixoo screen is off.';
+}
+
+function formatClockfacePushError(error: unknown) {
+  if (isPixooReachabilityError(error)) {
+    return 'Pixoo is not reachable.';
+  }
+
+  if (error instanceof Error) {
+    return error.message || error.name;
+  }
+
+  return String(error);
+}
+
+function isPixooReachabilityError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const cause = (error as Error & { cause?: unknown }).cause;
+  const causeCode =
+    cause && typeof cause === 'object' && 'code' in cause
+      ? String((cause as { code?: unknown }).code ?? '')
+      : '';
+
+  return (
+    error.message === 'fetch failed' ||
+    error.name === 'AbortError' ||
+    causeCode === 'ECONNREFUSED' ||
+    causeCode === 'EHOSTUNREACH' ||
+    causeCode === 'ENETUNREACH' ||
+    causeCode === 'ETIMEDOUT'
+  );
+}
+
 function getServiceClockfacePreview() {
   const size = PIXOO_NATIVE_SIZE;
   const buffer = new Uint8Array(size * size * 3);
+  const center = Math.floor(size / 2);
 
   drawServiceBackground(buffer, size);
-  drawGear(buffer, size, Math.floor(size / 2), Math.floor(size / 2), 21, 10);
+  drawGear(
+    buffer,
+    size,
+    center,
+    center,
+    Math.max(5, Math.floor(size * 0.33)),
+    Math.max(2, Math.floor(size * 0.16))
+  );
 
   return {
     size,
@@ -1344,7 +1523,7 @@ async function getDisplayBuffer(clockface: Clockface) {
     return frame;
   }
 
-  const size = PIXOO_NATIVE_SIZE;
+  const size = frame.size;
   const buffer =
     frame.size === size
       ? frame.buffer
@@ -1405,6 +1584,16 @@ function getManifestModulePath(manifestPath: string, manifest: ClockfaceManifest
   return `${manifestPath.replace(/\/manifest\.json$/, '')}/${entry}`;
 }
 
+function getManifestPictureUrl(manifestPath: string, manifest: ClockfaceManifest) {
+  const picture = normalizeOptionalManifestString(manifest.picture);
+
+  if (!picture || picture.includes('..') || picture.startsWith('/') || /^[a-z]+:/i.test(picture)) {
+    return undefined;
+  }
+
+  return pictureAssets[`${manifestPath.replace(/\/manifest\.json$/, '')}/${picture.replace(/^\.\/+/, '')}`];
+}
+
 function getClockfaceIdFromManifestPath(path: string) {
   return normalizeClockfaceId(path.split('/').at(-2) ?? path);
 }
@@ -1426,6 +1615,12 @@ function splitCamelCase(value: string) {
 }
 
 function getInitialActiveClockfaceId() {
+  const favoriteId = getExistingFavoriteClockfaceId();
+
+  if (favoriteId) {
+    return favoriteId;
+  }
+
   const currentId = clockfaceRuntimeState.activeClockfaceId;
 
   if (currentId && clockfaces.some((clockface) => clockface.id === currentId)) {
@@ -1433,6 +1628,11 @@ function getInitialActiveClockfaceId() {
   }
 
   return clockfaces[0]?.id ?? '';
+}
+
+function getExistingFavoriteClockfaceId() {
+  const favoriteId = getFavoriteClockfaceId();
+  return favoriteId && clockfaces.some((clockface) => clockface.id === favoriteId) ? favoriteId : null;
 }
 
 function getActiveClockfaceId() {

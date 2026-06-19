@@ -8,6 +8,7 @@ export type RGB = [number, number, number];
 type PixooCommand = Record<string, unknown> & { Command: string };
 type PixooPowerListener = (state: PixooPowerState) => void;
 type PixooRecoveryListener = (state: PixooRecoveryState) => void;
+type PixooReachabilityListener = (state: PixooRecoveryState, message?: string) => void;
 export type PixooCommandSample = {
   command: string;
   durationMs: number;
@@ -50,6 +51,10 @@ type PixooReachabilityState = {
   settings: unknown | null;
   powerListeners: Set<PixooPowerListener>;
   recoveryListeners: Set<PixooRecoveryListener>;
+  reachabilityListeners: Set<PixooReachabilityListener>;
+  monitorTimer?: ReturnType<typeof setTimeout>;
+  monitorRunning: boolean;
+  monitorStopped: boolean;
 };
 
 type PixooDrawState = {
@@ -63,6 +68,10 @@ const PIXOO_DRAW_RECOVERY_DELAY_MS = 5_000;
 const PIXOO_FRAME_RESOLUTIONS = [16, 32, 64] as const;
 const HTTP_GIF_RESET_INTERVAL_FRAMES = 58;
 const PIXOO_CUSTOM_CHANNEL_INDEX = 3;
+const PIXOO_UNREACHABLE_MESSAGE = 'Pixoo is offline. Check that it is powered on and connected to the same network.';
+const PIXOO_REACHABILITY_ONLINE_POLL_MS = 30_000;
+const PIXOO_REACHABILITY_OFFLINE_POLL_MS = 5_000;
+const PIXOO_REACHABILITY_UNCONFIGURED_POLL_MS = 10_000;
 export const PIXOO_64_FRAME_SETTLE_MS = 50;
 
 const reachabilityState = getPixooReachabilityState();
@@ -102,7 +111,7 @@ export async function sendPixooCommand(command: PixooCommand) {
     const body = bodyText ? safeParseJson(bodyText) : {};
 
     if (!response.ok) {
-      markPixooReachability(false);
+      markPixooReachability(false, PIXOO_UNREACHABLE_MESSAGE);
       throw new Error(`Pixoo returned HTTP ${response.status}: ${bodyText}`);
     }
 
@@ -114,7 +123,7 @@ export async function sendPixooCommand(command: PixooCommand) {
     });
     return body;
   } catch (error) {
-    markPixooReachability(false);
+    markPixooReachability(false, PIXOO_UNREACHABLE_MESSAGE);
     collectPixooCommand(command.Command, startedAt, false, error);
     debugLog('Pixoo command failed.', {
       command: command.Command,
@@ -151,7 +160,7 @@ export async function getPixooSettings() {
     syncPixooScreenPowerFromSettings(settings);
     return settings;
   } catch (error) {
-    markPixooReachability(false);
+    markPixooReachability(false, PIXOO_UNREACHABLE_MESSAGE);
     throw error;
   }
 }
@@ -159,6 +168,23 @@ export async function getPixooSettings() {
 export function getCachedPixooSettings() {
   syncReachabilityHost();
   return reachabilityState.settings;
+}
+
+export function startPixooReachabilityMonitor() {
+  syncReachabilityHost();
+  reachabilityState.monitorStopped = false;
+
+  if (reachabilityState.monitorTimer || reachabilityState.monitorRunning) {
+    return;
+  }
+
+  schedulePixooReachabilityCheck(0);
+}
+
+export function stopPixooReachabilityMonitor() {
+  reachabilityState.monitorStopped = true;
+  clearTimeout(reachabilityState.monitorTimer);
+  reachabilityState.monitorTimer = undefined;
 }
 
 export async function getPixooSettingsSnapshot() {
@@ -351,6 +377,58 @@ function collectPixooCommand(command: string, startedAt: number, ok: boolean, er
   });
 }
 
+function schedulePixooReachabilityCheck(delayMs: number) {
+  clearTimeout(reachabilityState.monitorTimer);
+  reachabilityState.monitorTimer = setTimeout(() => {
+    reachabilityState.monitorTimer = undefined;
+    checkPixooReachabilityInBackground();
+  }, Math.max(0, delayMs));
+}
+
+function checkPixooReachabilityInBackground() {
+  if (reachabilityState.monitorStopped || reachabilityState.monitorRunning) {
+    return;
+  }
+
+  reachabilityState.monitorRunning = true;
+  checkPixooReachability()
+    .catch((error) => {
+      debugLog('Pixoo reachability monitor check failed.', {
+        message: error instanceof Error ? error.message : String(error)
+      });
+    })
+    .finally(() => {
+      reachabilityState.monitorRunning = false;
+
+      if (!reachabilityState.monitorStopped) {
+        schedulePixooReachabilityCheck(getPixooReachabilityMonitorDelay());
+      }
+    });
+}
+
+async function checkPixooReachability() {
+  syncReachabilityHost();
+
+  if (!reachabilityState.host) {
+    markPixooReachability(false);
+    return;
+  }
+
+  await getPixooSettings();
+}
+
+function getPixooReachabilityMonitorDelay() {
+  syncReachabilityHost();
+
+  if (!reachabilityState.host) {
+    return PIXOO_REACHABILITY_UNCONFIGURED_POLL_MS;
+  }
+
+  return reachabilityState.reachable
+    ? PIXOO_REACHABILITY_ONLINE_POLL_MS
+    : PIXOO_REACHABILITY_OFFLINE_POLL_MS;
+}
+
 function cachePixooSettings(settings: unknown) {
   reachabilityState.settings = settings;
 }
@@ -375,6 +453,14 @@ export function subscribePixooRecovery(listener: PixooRecoveryListener) {
   };
 }
 
+export function subscribePixooReachability(listener: PixooReachabilityListener) {
+  reachabilityState.reachabilityListeners.add(listener);
+
+  return () => {
+    reachabilityState.reachabilityListeners.delete(listener);
+  };
+}
+
 export function subscribePixooPower(listener: PixooPowerListener) {
   reachabilityState.powerListeners.add(listener);
 
@@ -396,27 +482,39 @@ export function getPixooRecoveryState(): PixooRecoveryState {
   };
 }
 
-function markPixooReachability(reachable: boolean) {
+function markPixooReachability(reachable: boolean, message?: string) {
   syncReachabilityHost();
 
   if (!reachabilityState.host) {
+    const wasReachable = reachabilityState.reachable;
     reachabilityState.reachable = false;
     reachabilityState.observed = true;
     reachabilityState.drawCooldownUntil = 0;
+    if (wasReachable) {
+      publishPixooReachability(message);
+    }
     return;
   }
 
   const wasReachable = reachabilityState.reachable;
+  const wasObserved = reachabilityState.observed;
   reachabilityState.observed = true;
   reachabilityState.reachable = reachable;
 
   if (!reachable) {
     reachabilityState.drawCooldownUntil = 0;
+    if (wasReachable || !wasObserved) {
+      publishPixooReachability(message);
+    }
     return;
   }
 
   if (!wasReachable) {
     setPixooDrawRecoveryDelay();
+  }
+
+  if (!wasReachable || !wasObserved) {
+    publishPixooReachability();
   }
 }
 
@@ -543,6 +641,14 @@ function publishPixooPowerState() {
   }
 }
 
+function publishPixooReachability(message?: string) {
+  const recovery = getPixooRecoveryState();
+
+  for (const listener of reachabilityState.reachabilityListeners) {
+    listener(recovery, message);
+  }
+}
+
 function syncReachabilityHost() {
   const host = getRuntimeConfig().pixooHost;
 
@@ -586,15 +692,21 @@ function getPixooReachabilityState() {
     drawCooldownUntil: 0,
     settings: null,
     powerListeners: new Set(),
-    recoveryListeners: new Set()
+    recoveryListeners: new Set(),
+    reachabilityListeners: new Set(),
+    monitorRunning: false,
+    monitorStopped: true
   };
 
   globalScope[key].powerListeners ??= new Set();
   globalScope[key].recoveryListeners ??= new Set();
+  globalScope[key].reachabilityListeners ??= new Set();
   globalScope[key].screenOn ??= true;
   globalScope[key].screenObserved ??= false;
   globalScope[key].drawCooldownUntil ??= 0;
   globalScope[key].settings ??= null;
+  globalScope[key].monitorRunning ??= false;
+  globalScope[key].monitorStopped ??= true;
 
   return globalScope[key];
 }

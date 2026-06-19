@@ -200,8 +200,8 @@ function getTextClipRight(size = SCREEN_SIZE) {
   return size - POPUP_RIGHT_INSET - TEXT_INSET - 1;
 }
 
-function getAvailableTextWidth() {
-  return getTextClipRight() - getTextClipLeft() + 1;
+function getAvailableTextWidth(size = SCREEN_SIZE) {
+  return getTextClipRight(size) - getTextClipLeft() + 1;
 }
 
 function blendFlatPixel(

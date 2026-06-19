@@ -2,15 +2,14 @@
   import { onDestroy, onMount } from 'svelte';
   import {
     Bell,
-    Layers,
     Monitor,
     Palette,
     Power,
     RotateCcw,
     Send,
+    Star,
     Sun,
-    Volume2,
-    Wifi
+    Volume2
   } from '@lucide/svelte';
   import ClockfaceInputs from '$lib/components/ClockfaceInputs.svelte';
   import ClockfacePreview from '$lib/components/ClockfacePreview.svelte';
@@ -43,6 +42,7 @@
       pixooAddress: string;
       pixooHost: string;
       pixooPostUrl: string;
+      resolution: number;
       webuiPort: string;
     };
     homeAssistant?: {
@@ -60,6 +60,7 @@
     };
     recovery?: {
       reachable: boolean;
+      screenOn?: boolean;
       drawCooldownRemainingMs: number;
       drawReadyAt: string | null;
     };
@@ -87,6 +88,7 @@
     name: string;
     description?: string;
     picture?: string;
+    pictureUrl?: string;
     resolution: number;
     updateIntervalMs: number;
     data: Record<string, string>;
@@ -96,6 +98,7 @@
   type ClockfacesPayload = {
     ok: boolean;
     activeId: string;
+    favoriteId?: string | null;
     clockfaces: ClockfaceView[];
     active: ClockfaceView | null;
     message?: string;
@@ -125,6 +128,16 @@
         status: StatusPayload;
       }
     | {
+        type: 'pixoo_reachability';
+        reachable: boolean;
+        recovery: NonNullable<StatusPayload['recovery']>;
+        message?: string;
+      }
+    | {
+        type: 'recovery_status';
+        recovery: NonNullable<StatusPayload['recovery']>;
+      }
+    | {
         type: 'notification';
         message: string;
         beep: boolean;
@@ -134,6 +147,7 @@
   let clockfaces: ClockfaceView[] = [];
   let activeClockface: ClockfaceView | null = null;
   let activeClockfaceId = '';
+  let favoriteClockfaceId: string | null = null;
   let buttonState: Record<string, ActionState> = {};
   let buttonTimers: Record<string, ReturnType<typeof setTimeout>> = {};
   let previewSocket: WebSocket | undefined;
@@ -153,12 +167,19 @@
   let notificationBeep = true;
   let previewSrc = '';
   let previewFallbackSrc = '';
+  let runtimeResolution = 64;
+  let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+  let recoveryNowMs = Date.now();
+  let recoveryDeadlineMs = 0;
+  let recoverySignature = '';
 
   $: activeClockfaceHasSettings =
     activeClockface?.inputs.some((row) => row.some((input) => input.isSetting === true)) === true;
 
   $: pixooAddressConfigured = Boolean(status?.config?.pixooHost || pixooAddress);
-  $: pixooConnectionLabel = getPixooConnectionLabel(status);
+  $: syncRecoveryDeadline(status?.recovery);
+  $: isRecovering = Boolean(status?.reachable && recoveryDeadlineMs > recoveryNowMs);
+  $: pixooConnectionLabel = getPixooConnectionLabel(status, isRecovering);
   $: pixooConnectionMessage = getPixooConnectionMessage(status);
   function syncFromSettings(settings: PixooSettings | null) {
     if (!settings) {
@@ -204,12 +225,44 @@
     }
 
     pixooAddress = config.pixooAddress || config.pixooHost || pixooAddress;
+    runtimeResolution = config.resolution || runtimeResolution;
+  }
+
+  function syncRecoveryDeadline(recovery: StatusPayload['recovery'] | undefined) {
+    const nextSignature = `${recovery?.reachable ?? ''}:${recovery?.drawReadyAt ?? ''}:${
+      recovery?.drawCooldownRemainingMs ?? 0
+    }`;
+
+    if (nextSignature === recoverySignature) {
+      return;
+    }
+
+    recoverySignature = nextSignature;
+    clearTimeout(recoveryTimer);
+    recoveryTimer = undefined;
+    recoveryNowMs = Date.now();
+
+    if (!recovery || recovery.drawCooldownRemainingMs <= 0) {
+      recoveryDeadlineMs = 0;
+      return;
+    }
+
+    const parsedDeadlineMs = recovery.drawReadyAt ? Date.parse(recovery.drawReadyAt) : NaN;
+    recoveryDeadlineMs = Number.isFinite(parsedDeadlineMs)
+      ? parsedDeadlineMs
+      : recoveryNowMs + recovery.drawCooldownRemainingMs;
+
+    recoveryTimer = setTimeout(() => {
+      recoveryNowMs = Date.now();
+      recoveryTimer = undefined;
+    }, Math.max(0, recoveryDeadlineMs - recoveryNowMs) + 25);
   }
 
   function syncClockfaces(body: ClockfacesPayload) {
     clockfaces = body.clockfaces ?? [];
     activeClockface = body.active ?? null;
     activeClockfaceId = body.activeId ?? body.active?.id ?? '';
+    favoriteClockfaceId = body.favoriteId ?? null;
   }
 
   function syncActiveClockfaceData(activeId: string, data: Record<string, string>) {
@@ -337,6 +390,27 @@
         syncConfig(payload.status.config);
         syncControl(payload.status.control);
         syncFromSettings(payload.status.settings);
+        return;
+      }
+
+      if (payload?.type === 'pixoo_reachability') {
+        status = {
+          ...(status ?? createEmptyStatus()),
+          ok: payload.reachable,
+          reachable: payload.reachable,
+          settings: payload.reachable ? status?.settings ?? null : null,
+          message: payload.reachable ? undefined : payload.message || 'Pixoo is offline.',
+          recovery: payload.recovery
+        };
+        return;
+      }
+
+      if (payload?.type === 'recovery_status') {
+        status = {
+          ...(status ?? createEmptyStatus()),
+          reachable: payload.recovery.reachable || status?.reachable === true,
+          recovery: payload.recovery
+        };
       }
     };
 
@@ -430,6 +504,31 @@
       syncClockfaces(body);
     } catch (error) {
       activeClockfaceId = activeClockface?.id ?? '';
+    }
+  }
+
+  async function setFavoriteClockface(id: string | null) {
+    const previousFavoriteId = favoriteClockfaceId;
+    const nextFavoriteId = favoriteClockfaceId === id ? null : id;
+    favoriteClockfaceId = nextFavoriteId;
+
+    try {
+      const response = await fetch(apiUrl('/api/v1/clockfaces/favorite'), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ id: nextFavoriteId })
+      });
+      const body = (await response.json()) as ClockfacesPayload;
+
+      if (!response.ok || body.ok === false) {
+        throw new Error(body.message || 'Favorite clockface was not saved');
+      }
+
+      syncClockfaces(body);
+    } catch (error) {
+      favoriteClockfaceId = previousFavoriteId;
     }
   }
 
@@ -548,18 +647,18 @@
     applyWhiteBalance();
   }
 
-  function getPixooConnectionLabel(nextStatus: StatusPayload | null) {
-    const homeAssistantLabel = `HA ${nextStatus?.homeAssistant?.connected ? 'Connected' : 'Disconnected'}`;
+  function getPixooConnectionLabel(nextStatus: StatusPayload | null, nextIsRecovering: boolean) {
+    const homeAssistantLabel = getHomeAssistantConnectionLabel(nextStatus);
 
     if (!nextStatus) {
-      return `${pixooAddress ? 'checking' : 'Pixoo IP is not set'} / ${homeAssistantLabel}`;
+      return joinStatusLabels(pixooAddress ? 'checking' : 'Pixoo IP is not set', homeAssistantLabel);
     }
 
     if (!nextStatus.config.pixooHost) {
-      return `Pixoo IP is not set / ${homeAssistantLabel}`;
+      return joinStatusLabels('Pixoo IP is not set', homeAssistantLabel);
     }
 
-    return `${nextStatus.reachable ? 'online' : 'offline'} / ${homeAssistantLabel}`;
+    return joinStatusLabels(nextIsRecovering ? 'recovering' : nextStatus.reachable ? 'online' : 'offline', homeAssistantLabel);
   }
 
   function getPixooConnectionMessage(nextStatus: StatusPayload | null) {
@@ -582,6 +681,44 @@
       : false;
   }
 
+  function getHomeAssistantConnectionLabel(nextStatus: StatusPayload | null) {
+    const homeAssistant = nextStatus?.homeAssistant;
+
+    if (!homeAssistant?.configured || homeAssistant.connected) {
+      return '';
+    }
+
+    return 'HA offline';
+  }
+
+  function joinStatusLabels(...labels: string[]) {
+    return labels.filter(Boolean).join(' / ');
+  }
+
+  function clockfaceInitial(clockface: ClockfaceView) {
+    return clockface.name.trim().slice(0, 1).toUpperCase() || '?';
+  }
+
+  function createEmptyStatus(): StatusPayload {
+    return {
+      ok: true,
+      reachable: false,
+      config: {
+        configured: false,
+        homeAssistantConfigured: false,
+        homeAssistantTokenConfigured: false,
+        homeAssistantUrl: '',
+        pixooAddress: '',
+        pixooHost: '',
+        pixooPostUrl: '',
+        resolution: runtimeResolution,
+        webuiPort: ''
+      },
+      settings: null,
+      activeClockface: activeClockface
+    };
+  }
+
   onMount(() => {
     previewSrc = apiWebSocketUrl('/api/v1/preview.ws');
     previewFallbackSrc = apiUrl('/api/v1/preview.mjpeg');
@@ -600,6 +737,7 @@
 
   onDestroy(() => {
     clearTimeout(previewReconnectTimer);
+    clearTimeout(recoveryTimer);
     previewSocket?.close();
     Object.values(buttonTimers).forEach(clearTimeout);
   });
@@ -611,264 +749,302 @@
 </svelte:head>
 
 <main class="shell">
-  <div class="left-column">
-    <section class="pixoo-status-card" aria-label="Pixoo status">
-      <div class="status-title">
-        <button
-          aria-label="Open benchmark"
-          class:missing={!pixooAddressConfigured}
-          class:offline={pixooAddressConfigured && status?.reachable === false}
-          class:online={status?.reachable === true}
-          class="address-status"
-          ondblclick={openBenchmark}
-          type="button"
-        >
-          {pixooConnectionLabel}
-        </button>
-      </div>
+  <section class="pixoo-status-card" aria-label="Pixoo status">
+    <div class="status-connection">
+      <button
+        aria-label="Open benchmark"
+        class:missing={!pixooAddressConfigured}
+        class:offline={pixooAddressConfigured && status?.reachable === false}
+        class:online={status?.reachable === true && !isRecovering}
+        class:recovering={isRecovering}
+        class="address-status"
+        ondblclick={openBenchmark}
+        type="button"
+      >
+        {pixooConnectionLabel}
+      </button>
 
       <div class="status-address">{pixooAddress || 'Not configured'}</div>
       <input aria-label="Pixoo IP" bind:value={pixooAddress} disabled readonly type="hidden" />
       {#if pixooConnectionMessage}
         <p class="connection-note">{pixooConnectionMessage}</p>
       {/if}
-    </section>
+    </div>
 
-    <ClockfacePreview fallbackSrc={previewFallbackSrc} {previewSrc} />
-  </div>
-
-  <div class="right-column">
-    <section class="control-block pixoopal-power compact" aria-label="PixooPal control">
-      <label class="switch-row">
-        <input
-          type="checkbox"
-          bind:checked={pixooPalOff}
-          disabled={buttonState.pixooPalPower === 'busy'}
-          onchange={(event) => setPixooPalPower(event.currentTarget.checked)}
+    <div class="status-actions" aria-label="Clockface actions">
+      <button
+        aria-label="Toggle favorite clockface"
+        aria-pressed={favoriteClockfaceId === activeClockfaceId}
+        class:favorite={favoriteClockfaceId === activeClockfaceId}
+        class="status-action-button"
+        disabled={!activeClockfaceId}
+        type="button"
+        onclick={() => setFavoriteClockface(activeClockfaceId || null)}
+      >
+        <Star
+          size={18}
+          fill={favoriteClockfaceId === activeClockfaceId ? '#76dcca' : 'none'}
         />
-        <span class="switch-track" aria-hidden="true"></span>
-        <span>
-          <strong>Pause PixooPal</strong>
-          <small>{pixooPalOff ? 'Clockface is paused' : 'Clockface is active'}</small>
-        </span>
-      </label>
-    </section>
-    <section class="device-controls" aria-label="Device settings">
-      <div class="control-block brightness-block">
-        <div class="control-heading">
-          <Sun size={18} />
-          <span>Brightness</span>
-          <strong>{brightness}%</strong>
-          <div class="white-balance-menu">
-            <button
-              aria-expanded={whiteBalanceOpen}
-              aria-label="White balance"
-              class:error={buttonState.whiteBalance === 'error'}
-              class:sent={buttonState.whiteBalance === 'sent'}
-              class="icon-button white-balance-button"
-              disabled={buttonState.whiteBalance === 'busy'}
-              type="button"
-              onclick={() => {
-                whiteBalanceOpen = !whiteBalanceOpen;
-              }}
-            >
-              <Palette size={16} />
-            </button>
+      </button>
 
-            {#if whiteBalanceOpen}
-              <div class="white-balance-popover" role="dialog" aria-label="White balance settings">
-                <div class="popover-title">
-                  <span>White balance</span>
-                  <button
-                    aria-label="Reset white balance"
-                    class="icon-button"
-                    disabled={buttonState.whiteBalance === 'busy'}
-                    type="button"
-                    onclick={resetWhiteBalance}
-                  >
-                    <RotateCcw size={15} />
-                  </button>
-                </div>
-
-                <label class="balance-slider red">
-                  <span>Red</span>
-                  <strong>{whiteBalance.red}%</strong>
-                  <input
-                    aria-label="White balance red"
-                    type="range"
-                    min="0"
-                    max="100"
-                    bind:value={whiteBalance.red}
-                  />
-                </label>
-
-                <label class="balance-slider green">
-                  <span>Green</span>
-                  <strong>{whiteBalance.green}%</strong>
-                  <input
-                    aria-label="White balance green"
-                    type="range"
-                    min="0"
-                    max="100"
-                    bind:value={whiteBalance.green}
-                  />
-                </label>
-
-                <label class="balance-slider blue">
-                  <span>Blue</span>
-                  <strong>{whiteBalance.blue}%</strong>
-                  <input
-                    aria-label="White balance blue"
-                    type="range"
-                    min="0"
-                    max="100"
-                    bind:value={whiteBalance.blue}
-                  />
-                </label>
-
-                <button
-                  class:error={buttonState.whiteBalance === 'error'}
-                  class:sent={buttonState.whiteBalance === 'sent'}
-                  class="apply-balance"
-                  disabled={buttonState.whiteBalance === 'busy'}
-                  type="button"
-                  onclick={applyWhiteBalance}
-                >
-                  {actionLabel('whiteBalance', 'Apply')}
-                </button>
-              </div>
-            {/if}
-          </div>
-        </div>
-
-        <input
-          aria-label="Яркость"
-          type="range"
-          min="0"
-          max="100"
-          bind:value={brightness}
-          onchange={() => sendAction('brightness', 'brightness', { value: brightness })}
-        />
-      </div>
-
-      <div class="control-block power-block">
-        <div class="control-heading">
-          <Power size={18} />
-          <span>Screen</span>
-        </div>
-
-        <div class="segmented" aria-label="Питание экрана">
-          <button
-            type="button"
-            class:active={powered}
-            class:error={buttonState.screenOn === 'error'}
-            class:sent={buttonState.screenOn === 'sent'}
-            disabled={buttonState.screenOn === 'busy'}
-            onclick={() => {
-              powered = true;
-              sendAction('screenOn', 'screen', { on: true });
-            }}
-          >
-            <Monitor size={17} />
-            <span>{actionLabel('screenOn', 'On')}</span>
-          </button>
-          <button
-            type="button"
-            class:active={!powered}
-            class:error={buttonState.screenOff === 'error'}
-            class:sent={buttonState.screenOff === 'sent'}
-            disabled={buttonState.screenOff === 'busy'}
-            onclick={() => {
-              powered = false;
-              sendAction('screenOff', 'screen', { on: false });
-            }}
-          >
-            <Power size={17} />
-            <span>{actionLabel('screenOff', 'Off')}</span>
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <section class="clockface-panel" aria-label="Выбор Clockface">
-      <div class="panel-title">
-        <Layers size={19} />
-        <h2>Clockface</h2>
-      </div>
-
-      <div class="clockface-picker-row">
-        <label class="select-label">
-          <span>Active</span>
-          <select
-            value={activeClockfaceId}
-            onchange={(event) => selectClockface(event.currentTarget.value)}
-          >
-            {#each clockfaces as clockface}
-              <option value={clockface.id}>{clockface.name}</option>
-            {/each}
-          </select>
-        </label>
-
-        {#if activeClockface && activeClockfaceHasSettings}
-          <ClockfaceInputs
-            mode="settings"
-            inputs={activeClockface.inputs}
-            data={activeClockface.data}
-            {buttonState}
-            onSubmitInput={submitClockfaceInput}
-          />
-        {/if}
-      </div>
-
-      {#if activeClockface}
+      {#if activeClockface && activeClockfaceHasSettings}
         <ClockfaceInputs
-          mode="visible"
+          mode="settings"
           inputs={activeClockface.inputs}
           data={activeClockface.data}
           {buttonState}
           onSubmitInput={submitClockfaceInput}
         />
       {/if}
+    </div>
+  </section>
+
+  <div class="desktop-surface">
+    <section class="desktop-column clockface-column" aria-label="Installed Clockfaces">
+      <div
+        class="clockface-carousel"
+        aria-label="Installed clockface carousel"
+      >
+        {#each clockfaces as clockface}
+          <article
+            class:active={clockface.id === activeClockfaceId}
+            class="clockface-card"
+          >
+            <button
+              aria-pressed={clockface.id === activeClockfaceId}
+              class="clockface-select"
+              type="button"
+              onclick={() => selectClockface(clockface.id)}
+            >
+              <span class="clockface-image">
+                {#if clockface.pictureUrl}
+                  <img src={clockface.pictureUrl} alt="" loading="lazy" />
+                {:else}
+                  <span>{clockfaceInitial(clockface)}</span>
+                {/if}
+              </span>
+              <span class="clockface-card-copy">
+                <strong>{clockface.name}</strong>
+              </span>
+            </button>
+          </article>
+        {/each}
+      </div>
+
+      {#if activeClockface && activeClockface.inputs.flat().filter(x => !x.isSetting).length > 0}
+        <section class="clockface-panel" aria-label="Active Clockface controls">
+          <ClockfaceInputs
+            mode="visible"
+            inputs={activeClockface.inputs}
+            data={activeClockface.data}
+            {buttonState}
+            onSubmitInput={submitClockfaceInput}
+          />
+        </section>
+      {/if}
     </section>
 
-    <section class="notification-panel" aria-label="Notification">
-      <div class="panel-title">
-        <Bell size={19} />
-        <h2>Notification</h2>
-      </div>
+    <section class="desktop-column preview-column" aria-label="Pixoo preview">
+      <ClockfacePreview
+        fallbackSrc={previewFallbackSrc}
+        {previewSrc}
+        resolution={runtimeResolution}
+      />
+    </section>
 
-      <div class="notification-form">
-        <label class="notification-text">
-          <span>Text</span>
+    <section class="desktop-column controls-column" aria-label="PixooPal controls">
+      <section class="control-block pixoopal-power compact" aria-label="PixooPal control">
+        <label class="switch-row">
           <input
-            type="text"
-            bind:value={notificationText}
-            placeholder="Hi, Pixoo!"
-            onkeydown={(event) => {
-              if (event.key === 'Enter') {
-                submitNotification();
-              }
-            }}
+            type="checkbox"
+            bind:checked={pixooPalOff}
+            disabled={buttonState.pixooPalPower === 'busy'}
+            onchange={(event) => setPixooPalPower(event.currentTarget.checked)}
           />
+          <span class="switch-track" aria-hidden="true"></span>
+          <span>
+            <strong>Pause PixooPal</strong>
+            <small>{pixooPalOff ? 'Clockface is paused' : 'Clockface is active'}</small>
+          </span>
         </label>
+      </section>
 
-        <label class="beep-toggle">
-          <input type="checkbox" bind:checked={notificationBeep} />
-          <Volume2 size={17} />
-          <span>Beep</span>
-        </label>
+      <section class="device-controls" aria-label="Device settings">
+        <div class="control-block brightness-block">
+          <div class="control-heading">
+            <Sun size={18} />
+            <span>Brightness</span>
+            <strong>{brightness}%</strong>
+            <div class="white-balance-menu">
+              <button
+                aria-expanded={whiteBalanceOpen}
+                aria-label="White balance"
+                class:error={buttonState.whiteBalance === 'error'}
+                class:sent={buttonState.whiteBalance === 'sent'}
+                class="icon-button white-balance-button"
+                disabled={buttonState.whiteBalance === 'busy'}
+                type="button"
+                onclick={() => {
+                  whiteBalanceOpen = !whiteBalanceOpen;
+                }}
+              >
+                <Palette size={16} />
+              </button>
 
-        <button
-          class:error={buttonState.notification === 'error'}
-          class:sent={buttonState.notification === 'sent'}
-          disabled={buttonState.notification === 'busy'}
-          type="button"
-          onclick={submitNotification}
-        >
-          <Send size={17} />
-          <span>{actionLabel('notification', 'Send')}</span>
-        </button>
-      </div>
+              {#if whiteBalanceOpen}
+                <div class="white-balance-popover" role="dialog" aria-label="White balance settings">
+                  <div class="popover-title">
+                    <span>White balance</span>
+                    <button
+                      aria-label="Reset white balance"
+                      class="icon-button"
+                      disabled={buttonState.whiteBalance === 'busy'}
+                      type="button"
+                      onclick={resetWhiteBalance}
+                    >
+                      <RotateCcw size={15} />
+                    </button>
+                  </div>
+
+                  <label class="balance-slider red">
+                    <span>Red</span>
+                    <strong>{whiteBalance.red}%</strong>
+                    <input
+                      aria-label="White balance red"
+                      type="range"
+                      min="0"
+                      max="100"
+                      bind:value={whiteBalance.red}
+                    />
+                  </label>
+
+                  <label class="balance-slider green">
+                    <span>Green</span>
+                    <strong>{whiteBalance.green}%</strong>
+                    <input
+                      aria-label="White balance green"
+                      type="range"
+                      min="0"
+                      max="100"
+                      bind:value={whiteBalance.green}
+                    />
+                  </label>
+
+                  <label class="balance-slider blue">
+                    <span>Blue</span>
+                    <strong>{whiteBalance.blue}%</strong>
+                    <input
+                      aria-label="White balance blue"
+                      type="range"
+                      min="0"
+                      max="100"
+                      bind:value={whiteBalance.blue}
+                    />
+                  </label>
+
+                  <button
+                    class:error={buttonState.whiteBalance === 'error'}
+                    class:sent={buttonState.whiteBalance === 'sent'}
+                    class="apply-balance"
+                    disabled={buttonState.whiteBalance === 'busy'}
+                    type="button"
+                    onclick={applyWhiteBalance}
+                  >
+                    {actionLabel('whiteBalance', 'Apply')}
+                  </button>
+                </div>
+              {/if}
+            </div>
+          </div>
+
+          <input
+            aria-label="Яркость"
+            type="range"
+            min="0"
+            max="100"
+            bind:value={brightness}
+            onchange={() => sendAction('brightness', 'brightness', { value: brightness })}
+          />
+        </div>
+
+        <div class="control-block power-block">
+          <div class="control-heading">
+            <Power size={18} />
+            <span>Screen</span>
+          </div>
+
+          <div class="segmented" aria-label="Питание экрана">
+            <button
+              type="button"
+              class:active={powered}
+              class:error={buttonState.screenOn === 'error'}
+              class:sent={buttonState.screenOn === 'sent'}
+              disabled={buttonState.screenOn === 'busy'}
+              onclick={() => {
+                powered = true;
+                sendAction('screenOn', 'screen', { on: true });
+              }}
+            >
+              <Monitor size={17} />
+              <span>{actionLabel('screenOn', 'On')}</span>
+            </button>
+            <button
+              type="button"
+              class:active={!powered}
+              class:error={buttonState.screenOff === 'error'}
+              class:sent={buttonState.screenOff === 'sent'}
+              disabled={buttonState.screenOff === 'busy'}
+              onclick={() => {
+                powered = false;
+                sendAction('screenOff', 'screen', { on: false });
+              }}
+            >
+              <Power size={17} />
+              <span>{actionLabel('screenOff', 'Off')}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="notification-panel" aria-label="Notification">
+        <div class="panel-title">
+          <Bell size={19} />
+          <h2>Notification</h2>
+        </div>
+
+        <div class="notification-form">
+          <label class="notification-text">
+            <span>Text</span>
+            <input
+              type="text"
+              bind:value={notificationText}
+              placeholder="Hi, Pixoo!"
+              onkeydown={(event) => {
+                if (event.key === 'Enter') {
+                  submitNotification();
+                }
+              }}
+            />
+          </label>
+
+          <label class="beep-toggle">
+            <input type="checkbox" bind:checked={notificationBeep} />
+            <Volume2 size={17} />
+            <span>Beep</span>
+          </label>
+
+          <button
+            class:error={buttonState.notification === 'error'}
+            class:sent={buttonState.notification === 'sent'}
+            disabled={buttonState.notification === 'busy'}
+            type="button"
+            onclick={submitNotification}
+          >
+            <Send size={17} />
+            <span>{actionLabel('notification', 'Send')}</span>
+          </button>
+        </div>
+      </section>
     </section>
   </div>
 </main>
@@ -891,8 +1067,7 @@
   }
 
   button,
-  input,
-  select {
+  input {
     min-width: 0;
     font: inherit;
   }
@@ -908,59 +1083,82 @@
   }
 
   .shell {
-    display: flex;
-    width: min(950px, calc(100% - 32px));
-    min-height: 100vh;
+    display: grid;
+    width: min(1180px, calc(100% - 32px));
+    min-height: calc(100vh - 50px);
     margin: 0 auto;
-    padding: clamp(22px, 5vh, 54px) 0 42px;
-    gap: 22px;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .left-column,
-  .right-column {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-width: 0;
-  }
-
-  .left-column {
-    flex: 0 1 474px;
-    align-items: center;
-  }
-
-  .right-column {
-    flex: 1 1 0;
-    justify-content: center;
+    padding: 22px 0 34px;
+    gap: 14px;
+    align-content: center;
   }
 
   .pixoo-status-card {
     position: relative;
-    text-align: center;
     display: grid;
-    width: min(calc(42vw + 44px), 474px);
-    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-width: 0;
+    align-items: center;
+    justify-content: stretch;
     gap: 8px;
-    padding: 12px 14px;
+    padding: 10px 14px;
     border-radius: 12px;
+    background: rgba(12, 16, 23, 0.46);
     overflow: visible;
   }
 
-  .status-title {
+  .status-connection {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .status-actions {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
+  }
+
+  .status-action-button {
+    display: inline-grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
     color: #d9e2ec;
-    font-size: 0.88rem;
-    font-weight: 900;
+    background: #151b25;
+    cursor: pointer;
+  }
+
+  .status-action-button.favorite,
+  .status-action-button:hover {
+    color: #76dcca;
+    border-color: rgba(118, 220, 202, 0.42);
+  }
+
+  .status-action-button:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  .status-actions :global(.input-shell) {
+    width: auto;
+  }
+
+  .status-actions :global(.settings-area) {
+    position: relative;
   }
 
   .status-address {
+    min-width: 0;
+    max-width: 280px;
     overflow: hidden;
     color: #f8fbff;
-    font-size: 1.05rem;
+    font-size: 0.88rem;
     font-weight: 900;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -970,18 +1168,21 @@
     border: 0;
     background: transparent;
     cursor: default;
-    min-width: 0;
+    flex: 0 0 auto;
     padding: 0;
-    width: 100%;
     color: #aeb9c8;
     font: inherit;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     font-weight: 850;
     text-align: center;
   }
 
   .address-status.online {
     color: #87e6c7;
+  }
+
+  .address-status.recovering {
+    color: #f8dd7c;
   }
 
   .address-status.offline,
@@ -996,6 +1197,158 @@
     line-height: 1.35;
   }
 
+  .desktop-surface {
+    display: grid;
+    grid-template-columns: minmax(290px, 0.85fr) minmax(0, 1.55fr) minmax(290px, 0.85fr);
+    align-items: stretch;
+    height: 550px;
+    gap: 18px;
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .desktop-column {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    gap: 14px;
+    overflow: visible;
+  }
+
+  .clockface-column,
+  .controls-column {
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: rgba(12, 16, 23, 0.54);
+  }
+
+  .clockface-column {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  .preview-column {
+    display: grid;
+    grid-template-rows: 1fr;
+    justify-content: stretch;
+    align-items: center;
+    padding: 0;
+    overflow: visible;
+  }
+
+  .controls-column {
+    display: grid;
+    /* grid-template-rows: minmax(86px, 0.8fr) minmax(210px, 1.7fr) minmax(150px, 1.2fr); */
+    align-content: stretch;
+  }
+
+  .controls-column > section {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .clockface-carousel {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: max-content;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 8px;
+    align-content: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0;
+    scrollbar-width: none;
+  }
+
+  .clockface-carousel::-webkit-scrollbar {
+    display: none;
+  }
+
+  .clockface-card {
+    position: relative;
+    display: grid;
+    gap: 6px;
+    align-items: stretch;
+    align-content: start;
+    min-height: 105px;
+    padding: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
+    color: #d9e2ec;
+    background: rgba(255, 255, 255, 0.04);
+    transition:
+      border-color 160ms ease,
+      background 160ms ease;
+  }
+
+  .clockface-select {
+    display: grid;
+    grid-template-rows: auto auto;
+    gap: 6px;
+    align-content: start;
+    justify-items: stretch;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    text-align: center;
+  }
+
+  .clockface-card:hover,
+  .clockface-card.active {
+    border-color: rgba(118, 220, 202, 0.48);
+    background: rgba(118, 220, 202, 0.11);
+  }
+
+  .clockface-image {
+    display: grid;
+    width: 100%;
+    aspect-ratio: 1;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 9px;
+    color: #07110f;
+    background:
+      radial-gradient(circle at 36% 26%, rgba(255, 255, 255, 0.42), transparent 28px),
+      #76dcca;
+    font-size: 1.5rem;
+    font-weight: 950;
+  }
+
+  .clockface-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .clockface-card-copy {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 0;
+  }
+
+  .clockface-card-copy strong {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    color: #f8fbff;
+    font-size: 0.66rem;
+    font-weight: 800;
+    line-height: 1.18;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .device-controls,
   .notification-panel,
   .clockface-panel {
@@ -1004,22 +1357,22 @@
   }
 
   .device-controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-content: stretch;
   }
 
   .control-block,
   .notification-panel,
   .clockface-panel {
     position: relative;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    /* border: 1px solid rgba(255, 255, 255, 0.08); */
     border-radius: 14px;
-    background: rgba(12, 16, 23, 0.78);
-    box-shadow:
-      0 18px 48px rgba(0, 0, 0, 0.28),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    /* background: rgba(12, 16, 23, 0.78); */
+    /* box-shadow: */
+      /* 0 18px 48px rgba(0, 0, 0, 0.28), */
+      /* inset 0 1px 0 rgba(255, 255, 255, 0.05); */
     overflow: visible;
   }
 
@@ -1099,8 +1452,8 @@
 
   .control-block {
     display: grid;
-    gap: 12px;
-    padding: 14px;
+    gap: 10px;
+    padding: 12px;
   }
 
   .control-heading,
@@ -1255,12 +1608,10 @@
   }
 
   .brightness-block {
-    flex: 1 1 205px;
     min-width: 0;
   }
 
   .power-block {
-    flex: 1 0 190px;
     min-width: 0;
   }
 
@@ -1309,45 +1660,35 @@
   .clockface-panel {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 16px;
+    gap: 12px;
+    padding: 14px;
   }
 
-  .select-label {
-    display: grid;
-    gap: 7px;
-    color: #94a3b8;
-    font-size: 0.82rem;
-    font-weight: 800;
-  }
-
-  .clockface-picker-row {
-    display: flex;
-    gap: 10px;
-    align-items: end;
-  }
-
-  .clockface-picker-row .select-label {
-    flex: 1 1 0;
-    min-width: 0;
+  .clockface-column .clockface-panel {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0;
+    padding: 10px 0 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .notification-panel {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 16px;
+    gap: 12px;
+    padding: 14px;
   }
 
   .notification-form {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
     align-items: end;
   }
 
   .notification-text {
     display: grid;
-    flex: 1 1 0;
+    grid-column: 1 / -1;
     min-width: 0;
     gap: 7px;
     color: #94a3b8;
@@ -1371,11 +1712,15 @@
   }
 
   .beep-toggle input {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
     accent-color: #63d1bb;
   }
 
   .notification-form button {
     display: inline-flex;
+    width: 100%;
     min-height: 42px;
     align-items: center;
     justify-content: center;
@@ -1399,8 +1744,7 @@
     opacity: 0.68;
   }
 
-  input[type='text'],
-  select {
+  input[type='text'] {
     width: 100%;
     min-height: 42px;
     padding: 0 12px;
@@ -1411,47 +1755,41 @@
     outline: none;
   }
 
-  input[type='text']:focus,
-  select:focus {
+  input[type='text']:focus {
     border-color: #63d1bb;
     box-shadow: 0 0 0 3px rgba(99, 209, 187, 0.16);
   }
 
   @media (max-width: 860px) {
     .shell {
-      flex-direction: column;
       padding-top: 18px;
-      align-items: stretch;
     }
 
-    .left-column {
-      flex-basis: auto;
-      align-items: stretch;
+    .desktop-surface {
+      grid-template-columns: 1fr;
+      height: auto;
+      min-height: 0;
+      padding: 12px;
     }
 
-    .right-column {
-      flex-basis: auto;
+    .desktop-column {
+      min-height: auto;
     }
 
-    .device-controls {
-      flex-direction: column;
+    .clockface-carousel {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
-    .pixoo-status-card {
-      width: 100%;
-    }
-
-    .clockface-picker-row {
-      flex-wrap: wrap;
+    .clockface-column {
+      overflow: visible;
     }
 
     .notification-form {
-      flex-direction: column;
-      align-items: stretch;
+      grid-template-columns: 1fr;
     }
 
-    .power-block {
-      flex-basis: auto;
+    .controls-column {
+      display: flex;
     }
   }
 </style>

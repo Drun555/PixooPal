@@ -18,19 +18,30 @@ panel_icon: mdi:led-strip-variant
 panel_title: PixooPal
 ports:
   5173/tcp: null
+  443/tcp: null
+  1883/tcp: null
 ports_description:
   5173/tcp: PixooPal Web UI
+  443/tcp: PixooPal Divoom MITM HTTPS
+  1883/tcp: PixooPal embedded MQTT broker
 map:
   - type: data
     read_only: false
 options:
   pixoo_device_address: ""
+  pixoopal_host_ip: ""
+  resolution: "64"
   debug_logging: false
 schema:
   pixoo_device_address: str?
+  pixoopal_host_ip: str?
+  resolution: list(16|32|64)?
   debug_logging: bool?
 environment:
-  PORT: "5173"
+  HTTP_PORT: "5173"
+  HTTPS_PORT: "443"
+  PIXOOPAL_HOST_IP: ""
+  RESOLUTION: "64"
   DEBUG_LOGGING: "false"
   BODY_SIZE_LIMIT: "25M"
 discovery:
