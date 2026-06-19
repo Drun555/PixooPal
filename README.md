@@ -40,45 +40,40 @@ Clockfaces:
 - Now Playing: shows Home Assistant media_player entity (album cover art, progress and a title)
 - Next Up: shows the name and a time counter before next event from HA calendar
 - ToDo: shows "To-Do" list
-- You can also build your own clockface with any information you want.
+- You can also [build your own clockface](https://github.com/Drun555/PixooPal-Preview) with any information you want.
 
-
-Home Assistant App (in case if this link is broken, just add this repo in HA Apps store page)
-
-[![Open your Home Assistant instance and show the add add-on repository dialog with this repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FDrun555%2FPixooPal)
-
-Integration:
+Integration: (exposes real-time MJPEG preview of the screen, clockface selection tools, notifier service, light entity and a pause switch)
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Drun555&repository=PixooPal-Integration&category=integration)
 
 
-Custom card for displaying clockface inputs
+Custom card for displaying clockface inputs. With this, you can play Snake on your Pixoo right from the Home Assistant. Neat.
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Drun555&repository=PixooPal-Card&category=plugin)
 
-## Docker-compose
+## Installation
 
-(here)[https://github.com/Drun555/PixooPal/blob/main/docker-compose.yaml]
+- Home Assistant App (add this repo to the Store)
+- [Docker Compose](https://github.com/Drun555/PixooPal/blob/main/docker-compose.yaml)
+- [Unraid](https://ca.unraid.net/apps/pixoopal-0r1tfz8075vi60)
 
-## Running Locally / Developing
+#### Running Locally / Developing
 
 ```
 npm install
-npm run dev -- --host 0.0.0.0 --http-port 80 --pixoo 192.168.x.x --resolution 64 --ha-host 192.168.x.x --ha-token xxx
+npm run dev -- --host 0.0.0.0 --http-port 80 --https-port 443 --pixoopal-ip 192.168.x.x --pixoo 192.168.x.x --resolution 64 --ha-host 192.168.x.x --ha-token xxx
 ```
 
 ## Decloudifying
-It's a tricky, not really recomended part. Currently, declouding requires DNS redirection, free 1883 port and some kind of reverse proxy (not needed if you're hosting PixooPal on 80/443 ports). Additionally, I'm not sure if it's possible with Home Assistant App installations.
+It's a tricky, not really recomended part. Currently, declouding requires DNS redirection. VLAN / dedicated IP for PixooPal is heavily recommended, since mimicking Divoom cloud requires taking 80, 443 and 1883 ports. You can read some information about how it's done [here](https://www.reddit.com/r/homeassistant/comments/183mbrk/local_control_of_a_divoom_pixoo_64_in_an_isolated/)
 
+PixooPal serves a slightly customized MQ broker that keeps Pixoo alive (publishing Device/Hearbeat and AppMqttReset topics from time to time) and Device/InitV2 & Test/GetIP endpoints. 
 
-For decloudifying purpose, PixooPal serves:
-- A slightly customized built-in MQ broker that keeps Pixoo alive (publishing Device/Hearbeat and AppMqttReset topics from time to time)
-- Device/InitV2 and Test/GetIP endpoints
+Idea is simple:
+Pixoo goes ``app.divoom-gz.com GET /Device/InitV2`` -> we're intercepting that, pointing Pixoo at our MQ server -> profit
 
+So, steps:
+- Make sure to add ``PIXOOPAL_HOST_IP`` / ``--pixoopal-ip``. It's a MQ broker IP that PixooPal will send to Pixoo.
+- You should redirect ``app.divoom-gz.com`` to your PixooPal host IP at router level. If PixooPal uses dedicated IP and runs on 80/443/1883, then it should be enough.
 
--1. Make sure that your host have an open 1883 port. It sucks, I know. If your 1883 port is already taken, your best bet is to make use of VLAN. 
-0. Add ``PIXOO_DEVICE_ADDRESS`` variable (for docker-compose or Unraid installations), ``--pixoopal-ip 192.168.x.x`` argument (for local deployment). It's IP address of PixooPal instance that should be reachable by Divoom device. 
-1. You should redirect ``app.divoom-gz.com`` to your PixooPal host IP at router level.
-2. After that, you should make sure 80/443 ports are directed at PixooPal. PixooPal already serves a self-signed certificate by it's own, which can be helpful. If you're hosting PixooPal not on the 80/443 ports, then ``app.divoom-gz.com`` should point at reverse proxy that routes a request to PixooPal.
-
-I suck a little in terms of creating tutorials, sorry. Feel free to create an issue in case of fail.
+To be said, if you don't want to use dedicated IP, the only thing you will actually need is 1883 port and a reverse proxy. Point your DNS record at your proxy and make a ``app.divoom-gz.com`` record there for your pixoopal's HTTP port.
