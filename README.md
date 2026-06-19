@@ -24,7 +24,7 @@ It serves as server-side clockface render engine. In another words, it's a cute 
 - Send notifications to your Pixoo - they'll appear on top of any clockface. Emojis supported!
 
 > [!NOTE]
-> This project is almost entirely vibesloped by me, experienced web-developer. For some, it can be a huge con. For others, it also a huge con. Speaking for myself, I think AI is a nice tool, especially for harmless projects like this one. In the end, it's nothing but a a small project that I did solely for myself. I don't think something like this would be possible without AI, as it would take months or even years.
+> This project is almost entirely vibesloped by me, experienced web-developer. For some, it can be a huge con. For others, it also a huge con. Speaking for myself, I think AI is a good tool for harmless projects like this one. In the end, it's nothing but a a small project that I did solely for myself. I don't think something like this would be possible without AI, as it would take months or even years.
 
 > [!IMPORTANT]
 > Tested on Pixoo 64. However, it should work for Pixoo 16 / 32 too. Testing is welcomed.
